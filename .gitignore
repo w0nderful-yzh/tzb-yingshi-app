@@ -1,0 +1,58 @@
+# macOS and editors
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+local.properties
+*.key
+*.pem
+*.jks
+*.keystore
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Android and Gradle
+.gradle/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Runtime data and generated artifacts
+backend/storage/*
+!backend/storage/.gitkeep
+backend/models/*
+!backend/models/.gitkeep
+outputs/
+runs/
+tmp/
+logs/
+
+# Samples, datasets, and model weights
+samples/audio/*
+!samples/audio/.gitkeep
+samples/video/*
+!samples/video/.gitkeep
+datasets/
+*.pt
+*.onnx
+*.bin
+*.wav
+*.mp3
+*.mp4
+*.mov
+*.avi
