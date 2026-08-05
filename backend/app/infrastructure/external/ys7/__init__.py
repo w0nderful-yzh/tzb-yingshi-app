@@ -1,0 +1,1 @@
+"""EZVIZ signal ingestion adapter."""

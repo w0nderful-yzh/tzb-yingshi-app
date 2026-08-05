@@ -2,7 +2,17 @@
 
 ## 当前状态
 
-当前没有实现代码和自动测试。本文件约定后续测试范围和指标。
+当前已配置 Pytest，并覆盖健康检查、请求 ID、公共错误、数据库元数据契约，萤石 Token/直播地址契约、事件解析、鉴权、原文保存、去重、队列重试、媒体 PCM 切块、异步适配和乱序查询，以及防诈证据语义、S0-S5 转换、视觉语境融合、转写幂等、WAV 校验、SenseVoice 结果解析、音频块去重和 API 会话链路。
+
+## 已实现检查
+
+```bash
+cd backend
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app
+uv run pytest
+```
 
 ## 测试层级
 

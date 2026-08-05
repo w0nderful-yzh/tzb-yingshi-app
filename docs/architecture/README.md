@@ -2,7 +2,79 @@
 
 ## 当前状态
 
-当前只有目录和文档，没有可运行架构。本文件记录后续实现必须遵循的模块边界。
+当前已落地 FastAPI 公共入口、配置、请求 ID、统一响应、异常处理、版本化路由、萤石模拟事件适配、萤石直播音轨拉流、SenseVoice 短音频块、防诈 Service/状态机和 PostgreSQL 风险事件写入。跌倒业务、多设备动态取流、统一事件查询与处置、WebSocket 和正式萤石云信令鉴权/解密仍未实现。
+
+## 已实现后端入口
+
+```text
+app/main.py
+   ├── core/config.py           环境配置
+   ├── core/request_id.py       请求追踪
+   ├── core/exceptions.py       统一错误响应
+   └── api/v1/router.py
+          └── routes/health.py  存活检查
+```
+
+跌倒业务后续放在 `app/modules/fall/`，再由 `app/api/v1/routes/` 中的路由调用；算法逻辑不得直接写进路由。
+
+## 萤石事件接收第一阶段
+
+```text
+HTTP模拟推送
+   ↓ 共享令牌和消息结构校验
+Ys7SignalListener
+   ├── EventDeduplicator
+   ├── RawSignalStore
+   └── Ys7EventQueue（有界、非阻塞入队）
+              ↓
+       Ys7EventWorker
+              ↓
+       Ys7EventAdapter
+              ↓
+       VisualEventStore
+              ├──────────────→ GET /api/v1/fraud/visual-events
+              ↓
+POST /api/v1/fraud/analyze ← 带绝对时间的语音转写
+POST /api/v1/fraud/audio/chunks
+              ↓ 后台线程 SenseVoiceSmall
+       绝对时间转写片段
+              ↓
+       FraudSessionService
+              ↓
+规则 + 轻量分类器 + S0-S5 状态机
+              ↓
+    RiskEventRepository → PostgreSQL risk_events
+```
+
+`occurred_at` 是设备或云端产生事件的时间，`received_at` 是后端接收时间。视觉事件查询按前者排序，为后续按设备会话重放乱序证据做准备。
+
+当前使用内存队列、内存视觉事件仓库、内存活动防诈会话和磁盘原始消息；状态机生成的非 S0 风险快照已持久化到 PostgreSQL。原始消息可以用于排查和演示，但进程重启后尚不会自动扫描未消费文件；后续应将接收链路接入已有 Inbox/Visual Event 表并实现启动恢复。
+
+当前 HTTP 共享令牌只是正式签名协议到位前的开发保护措施。拿到萤石正式消息样例后，只替换 `external/ys7/` 中的鉴权、解密和解析代码，不改变统一视觉事件和防诈业务层。
+
+SenseVoice 通过 `SpeechRecognizer` 端口与业务层隔离，FunASR 只存在于 `infrastructure/external/sensevoice/`。模型懒加载且推理串行化；API 使用工作线程调用同步模型，模型缺失或失败不会阻止健康检查、萤石视觉接收和已有转写 API。
+
+## 萤石直播音轨
+
+```text
+AppKey/AppSecret
+      ↓
+Ys7ApiClient ── 获取/缓存 accessToken
+      ↓
+获取标准直播地址（FLV / RTMP / HLS）
+      ↓
+FfmpegPcmStreamSource
+      ↓ 16 kHz mono PCM，每 5 秒
+实时有界队列
+      ↓
+FraudAudioService → SenseVoice → S0-S5
+```
+
+Token、直播地址和设备验证码不得写入日志。媒体 Worker 每次重连重新获取直播地址，并采用 1–60 秒指数退避。当前仅处理音轨；视频诈骗证据仍优先来自萤石云算法事件，避免重复持续运行本地视觉模型。
+
+## 数据库
+
+PostgreSQL 表结构、关系、索引、JSONB 边界和删除策略见 [PostgreSQL 数据库设计](database-schema.md)。数据库结构必须通过 Alembic 迁移维护，应用启动时不调用 `create_all`。
 
 ## 规划结构
 
