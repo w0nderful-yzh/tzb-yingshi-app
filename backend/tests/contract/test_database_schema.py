@@ -9,12 +9,19 @@ from app.infrastructure.database.base import Base
 def test_initial_schema_contains_required_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
+        "family_bindings",
+        "binding_codes",
+        "user_push_endpoints",
+        "idempotency_records",
+        "elder_safety_settings",
+        "emergency_contacts",
         "devices",
         "ys7_signal_inbox",
         "visual_events",
         "model_runs",
         "risk_events",
         "event_actions",
+        "event_deliveries",
     }
 
 
@@ -46,10 +53,31 @@ def test_idempotency_and_risk_constraints_are_declared() -> None:
     }
 
     assert ("dedup_key",) in inbox_unique_columns
-    assert ("source_event_id",) in risk_unique_columns
+    assert ("source", "source_event_id") in risk_unique_columns
     assert "ck_risk_events_confidence_range" in risk_checks
     assert "ck_risk_events_risk_level_values" in risk_checks
+    assert "ck_risk_events_alert_level_values" in risk_checks
     assert isinstance(risk_events.c.evidence.type, JSONB)
+
+
+def test_app_phase_one_tables_support_authorization_and_delivery() -> None:
+    family_bindings = Base.metadata.tables["family_bindings"]
+    contacts = Base.metadata.tables["emergency_contacts"]
+    deliveries = Base.metadata.tables["event_deliveries"]
+    idempotency_records = Base.metadata.tables["idempotency_records"]
+    risk_events = Base.metadata.tables["risk_events"]
+
+    assert {"guardian_user_id", "elder_user_id", "status"} <= set(
+        family_bindings.c.keys()
+    )
+    assert {"phone_ciphertext", "phone_last4", "priority_order"} <= set(contacts.c.keys())
+    assert {"channel", "status", "scheduled_at", "dedup_key"} <= set(
+        deliveries.c.keys()
+    )
+    assert {"elder_user_id", "alert_level", "version"} <= set(risk_events.c.keys())
+    assert {"scope", "idempotency_key", "request_hash", "response_body"} <= set(
+        idempotency_records.c.keys()
+    )
 
 
 def test_database_url_is_redacted_in_settings_representation() -> None:
