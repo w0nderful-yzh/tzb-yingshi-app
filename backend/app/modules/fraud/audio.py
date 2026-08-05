@@ -21,6 +21,9 @@ class RelativeTranscriptSegment:
     start_ms: int
     end_ms: int
     text: str
+    language: str | None = None
+    emotion: str | None = None
+    audio_events: tuple[str, ...] = ()
 
 
 class SpeechRecognizer(Protocol):

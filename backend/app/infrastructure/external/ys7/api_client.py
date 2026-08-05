@@ -23,6 +23,10 @@ class Ys7LiveAddressProvider(Protocol):
     ) -> str: ...
 
 
+class Ys7SdkCredentialProvider(Protocol):
+    async def get_access_token(self) -> str: ...
+
+
 class Ys7ApiClient:
     def __init__(
         self,
@@ -47,7 +51,7 @@ class Ys7ApiClient:
         protocol: Literal["hls", "rtmp", "flv"],
         quality: int,
     ) -> str:
-        token = await self._get_access_token()
+        token = await self.get_access_token()
         response = await self._post(
             LIVE_ADDRESS_URL,
             {
@@ -60,7 +64,7 @@ class Ys7ApiClient:
         )
         if str(response.get("code")) == "10002" and self._static_access_token is None:
             self._cached_access_token = None
-            token = await self._get_access_token()
+            token = await self.get_access_token()
             response = await self._post(
                 LIVE_ADDRESS_URL,
                 {
@@ -77,7 +81,7 @@ class Ys7ApiClient:
             raise Ys7ApiError("YS7 live address response did not contain data.url")
         return cast(str, data["url"])
 
-    async def _get_access_token(self) -> str:
+    async def get_access_token(self) -> str:
         if self._static_access_token:
             return self._static_access_token
         now_ms = round(time.time() * 1000)

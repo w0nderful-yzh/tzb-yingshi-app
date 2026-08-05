@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.common.responses import ApiResponse
 from app.core.request_id import get_request_id
@@ -20,8 +20,21 @@ from app.modules.fraud.schemas import (
     FraudRiskSnapshot,
 )
 from app.modules.fraud.service import FraudSessionService
+from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
 
 router = APIRouter(prefix="/fraud", tags=["fraud"])
+
+
+class FraudLlmStatusData(BaseModel):
+    enabled: bool
+    configured: bool
+    running: bool
+    model: str | None
+    vision_enabled: bool
+    queue_depth: int
+    reviews_processed: int
+    reviews_failed: int
+    last_error: str | None
 
 
 @router.post("/analyze", response_model=ApiResponse[FraudAnalyzeData])
@@ -98,3 +111,35 @@ async def get_fraud_session(
     if risk is None:
         raise HTTPException(status_code=404, detail="fraud session not found")
     return ApiResponse(data=risk, request_id=get_request_id(request))
+
+
+@router.get(
+    "/llm/status",
+    response_model=ApiResponse[FraudLlmStatusData],
+)
+async def get_fraud_llm_status(request: Request) -> ApiResponse[FraudLlmStatusData]:
+    settings = request.app.state.settings
+    worker: FraudLlmReviewWorker | None = request.app.state.fraud_llm_worker
+    configured = bool(request.app.state.fraud_llm_configured)
+    return ApiResponse(
+        data=FraudLlmStatusData(
+            enabled=settings.fraud_llm_enabled,
+            configured=configured,
+            running=worker.running if worker is not None else False,
+            model=worker.model_name if worker is not None else settings.fraud_llm_model,
+            vision_enabled=settings.fraud_llm_vision_enabled,
+            queue_depth=worker.queue_depth if worker is not None else 0,
+            reviews_processed=worker.reviews_processed if worker is not None else 0,
+            reviews_failed=worker.reviews_failed if worker is not None else 0,
+            last_error=(
+                worker.last_error
+                if worker is not None
+                else (
+                    "Fraud LLM settings are incomplete"
+                    if settings.fraud_llm_enabled and not configured
+                    else None
+                )
+            ),
+        ),
+        request_id=get_request_id(request),
+    )

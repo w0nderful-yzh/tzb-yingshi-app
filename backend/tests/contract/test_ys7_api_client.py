@@ -68,6 +68,36 @@ async def test_app_credentials_are_exchanged_and_cached_for_live_address() -> No
 
 
 @pytest.mark.asyncio
+async def test_access_token_can_be_reused_for_android_sdk_session() -> None:
+    token_requests = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal token_requests
+        token_requests += 1
+        assert request.url.path.endswith("/token/get")
+        return httpx.Response(
+            200,
+            json={
+                "code": "200",
+                "data": {
+                    "accessToken": "sdk-access-token",
+                    "expireTime": 4_102_444_800_000,
+                },
+            },
+        )
+
+    client = Ys7ApiClient(
+        app_key="app-key",
+        app_secret="app-secret",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await client.get_access_token() == "sdk-access-token"
+    assert await client.get_access_token() == "sdk-access-token"
+    assert token_requests == 1
+
+
+@pytest.mark.asyncio
 async def test_static_access_token_skips_token_exchange() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/live/address/get")

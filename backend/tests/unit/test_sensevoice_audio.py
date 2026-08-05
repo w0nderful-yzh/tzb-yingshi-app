@@ -4,6 +4,7 @@ import wave
 import pytest
 
 from app.infrastructure.external.sensevoice.recognizer import (
+    extract_rich_tags,
     extract_timed_segments,
     extract_transcript,
 )
@@ -57,3 +58,26 @@ def test_extract_transcript_removes_sensevoice_rich_tags_without_funasr() -> Non
     text = extract_transcript([{"text": "<|zh|><|NEUTRAL|><|Speech|><|woitn|>马上转账"}])
 
     assert text == "马上转账"
+
+
+def test_extract_rich_tags_preserves_language_emotion_and_audio_events() -> None:
+    tags = extract_rich_tags("<|zh|><|ANGRY|><|Speech|><|BGM|><|woitn|>马上转账")
+
+    assert tags.language == "zh"
+    assert tags.emotion == "ANGRY"
+    assert tags.audio_events == ("speech", "bgm")
+
+
+def test_extract_timed_segments_inherits_item_rich_tags() -> None:
+    segments = extract_timed_segments(
+        [
+            {
+                "text": "<|zh|><|SAD|><|Speech|><|woitn|>完整文本",
+                "sentence_info": [{"start": 100, "end": 900, "text": "马上转账"}],
+            }
+        ]
+    )
+
+    assert segments[0].language == "zh"
+    assert segments[0].emotion == "SAD"
+    assert segments[0].audio_events == ("speech",)

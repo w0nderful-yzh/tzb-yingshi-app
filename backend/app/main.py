@@ -12,6 +12,7 @@ from app.infrastructure.database.risk_event_repository import RiskEventRepositor
 from app.infrastructure.database.session import Database
 from app.infrastructure.event_deduplicator import EventDeduplicator
 from app.infrastructure.event_queue import Ys7EventQueue
+from app.infrastructure.external.llm import OpenAiCompatibleFraudLlmJudge
 from app.infrastructure.external.sensevoice import SenseVoiceRecognizer
 from app.infrastructure.external.ys7.api_client import Ys7ApiClient
 from app.infrastructure.external.ys7.event_adapter import Ys7EventAdapter
@@ -21,8 +22,10 @@ from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.infrastructure.raw_signal_store import RawSignalStore
 from app.modules.fraud.audio import SpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
+from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
 from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.visual_event_store import VisualEventStore
+from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
 from app.workers.ys7_event_worker import Ys7EventWorker
 from app.workers.ys7_media_stream_worker import Ys7MediaStreamWorker
 
@@ -31,6 +34,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     speech_recognizer: SpeechRecognizer | None = None,
+    fraud_llm_judge: FraudLlmJudge | None = None,
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(runtime_settings.log_level)
@@ -46,9 +50,55 @@ def create_app(
     event_queue = Ys7EventQueue(maxsize=runtime_settings.ys7_queue_maxsize)
     visual_event_store = VisualEventStore()
     risk_event_repository = RiskEventRepository(database) if database is not None else None
+    llm_api_key = (
+        runtime_settings.fraud_llm_api_key.get_secret_value()
+        if runtime_settings.fraud_llm_api_key is not None
+        else None
+    )
+    llm_configured = fraud_llm_judge is not None or bool(
+        runtime_settings.fraud_llm_base_url and llm_api_key and runtime_settings.fraud_llm_model
+    )
+    runtime_llm_judge = fraud_llm_judge
+    llm_client: OpenAiCompatibleFraudLlmJudge | None = None
+    if (
+        runtime_settings.fraud_llm_enabled
+        and runtime_llm_judge is None
+        and llm_configured
+        and runtime_settings.fraud_llm_base_url is not None
+        and llm_api_key is not None
+        and runtime_settings.fraud_llm_model is not None
+    ):
+        llm_client = OpenAiCompatibleFraudLlmJudge(
+            base_url=runtime_settings.fraud_llm_base_url,
+            api_key=llm_api_key,
+            model=runtime_settings.fraud_llm_model,
+            timeout_seconds=runtime_settings.fraud_llm_timeout_seconds,
+            enable_thinking=runtime_settings.fraud_llm_enable_thinking,
+        )
+        runtime_llm_judge = llm_client
+    llm_review_queue = (
+        FraudLlmReviewQueue(maxsize=runtime_settings.fraud_llm_queue_maxsize)
+        if runtime_settings.fraud_llm_enabled and runtime_llm_judge is not None
+        else None
+    )
     fraud_session_service = FraudSessionService(
         visual_event_store=visual_event_store,
         risk_event_sink=risk_event_repository,
+        llm_review_queue=llm_review_queue,
+        llm_trigger_state_index=runtime_settings.fraud_llm_trigger_state_index,
+        llm_max_transcript_chars=runtime_settings.fraud_llm_max_transcript_chars,
+        llm_vision_enabled=runtime_settings.fraud_llm_vision_enabled,
+        llm_max_images=runtime_settings.fraud_llm_max_images,
+    )
+    llm_worker = (
+        FraudLlmReviewWorker(
+            queue=llm_review_queue,
+            judge=runtime_llm_judge,
+            fraud_session_service=fraud_session_service,
+            timeout_seconds=runtime_settings.fraud_llm_timeout_seconds,
+        )
+        if llm_review_queue is not None and runtime_llm_judge is not None
+        else None
     )
     runtime_speech_recognizer = speech_recognizer or SenseVoiceRecognizer(
         model_name=runtime_settings.sensevoice_model,
@@ -106,6 +156,8 @@ def create_app(
         if database is not None:
             await database.ping()
         try:
+            if llm_worker is not None:
+                await llm_worker.start()
             if runtime_settings.ys7_signal_enabled:
                 await event_worker.start()
             if runtime_settings.ys7_media_enabled and runtime_settings.sensevoice_enabled:
@@ -116,6 +168,10 @@ def create_app(
         finally:
             await media_worker.stop()
             await event_worker.stop()
+            if llm_worker is not None:
+                await llm_worker.stop()
+            if llm_client is not None:
+                await llm_client.close()
             if database is not None:
                 await database.dispose()
 
@@ -134,9 +190,12 @@ def create_app(
     application.state.ys7_event_queue = event_queue
     application.state.ys7_event_worker = event_worker
     application.state.ys7_media_worker = media_worker
+    application.state.ys7_api_client = ys7_api_client
     application.state.visual_event_store = visual_event_store
     application.state.fraud_session_service = fraud_session_service
     application.state.fraud_audio_service = fraud_audio_service
+    application.state.fraud_llm_configured = llm_configured
+    application.state.fraud_llm_worker = llm_worker
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix="/api/v1")

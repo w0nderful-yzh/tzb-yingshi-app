@@ -4,7 +4,7 @@ App 端联调接口设计（老人端 / 家属端分角色）见 [app-client-api
 
 ## 当前状态
 
-当前已实现健康检查、萤石模拟事件接收、接收器状态、萤石直播音轨状态、统一视觉事件查询、防诈转写分析、SenseVoice 音频块分析和活动会话风险查询。正式萤石消息协议仍需等待 Topic、签名/解密规则和完整消息样例后补充。
+当前已实现健康检查、萤石模拟事件接收、接收器状态、萤石直播音轨状态、统一视觉事件查询、防诈转写分析、SenseVoice 音频块分析、文本 LLM 异步复核和活动会话风险查询。正式萤石消息协议仍需等待 Topic、签名/解密规则和完整消息样例后补充。
 
 ## 统一前缀
 
@@ -22,6 +22,8 @@ PATCH  /api/v1/events/{event_id}/status
 GET    /api/v1/devices
 WS     /api/v1/ws/events
 ```
+
+Android 第一版已接入的 App 客户端接口以 [app-client-api.md](app-client-api.md) 为准。联调前执行数据库迁移和 `uv run python -m app.scripts.seed_demo`，再启动 FastAPI。
 
 ## 已实现接口
 
@@ -152,6 +154,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/fraud/audio/chunks \
 ### `GET /api/v1/fraud/sessions/{session_id}`
 
 通过必填查询参数 `device_id` 获取当前进程内活动会话的最新风险快照。该查询会重新读取同设备视觉事件，因此后到达的萤石事件可以在下一次查询或分析时参与判断。会话不存在返回 HTTP 404。
+
+### `GET /api/v1/fraud/llm/status`
+
+返回文本 LLM 复核开关、配置完整性、后台 Worker、模型名、队列深度、成功/失败次数和最近错误。LLM 未配置、超时或调用失败不会影响本地规则和 S0-S5 状态机继续运行。
 
 ## 统一响应
 

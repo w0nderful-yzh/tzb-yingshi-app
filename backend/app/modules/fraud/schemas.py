@@ -49,6 +49,9 @@ class FraudAnalyzeRequest(BaseModel):
     ended_at: datetime
     text: str = Field(min_length=1, max_length=2_000)
     elder_alone: bool = False
+    language: str | None = Field(default=None, max_length=32)
+    emotion: str | None = Field(default=None, max_length=32)
+    audio_events: list[str] = Field(default_factory=list, max_length=16)
 
     @field_validator("occurred_at", "ended_at")
     @classmethod
@@ -109,6 +112,9 @@ class TranscriptSegment(BaseModel):
     occurred_at: datetime
     ended_at: datetime
     text: str
+    language: str | None = None
+    emotion: str | None = None
+    audio_events: list[str] = Field(default_factory=list)
 
 
 class FraudAudioChunkData(BaseModel):

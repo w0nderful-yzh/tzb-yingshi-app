@@ -1,0 +1,297 @@
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.common.responses import ApiResponse
+from app.core.request_id import get_request_id
+from app.infrastructure.database.session import get_database_session
+from app.infrastructure.external.ys7.api_client import Ys7ApiError, Ys7LiveAddressProvider
+from app.modules.app_client.schemas import (
+    ActivityData,
+    ConfirmRequest,
+    ContactsData,
+    DeviceListData,
+    EldersData,
+    EmptyData,
+    EventDetailData,
+    EventListData,
+    EventsStatsData,
+    LiveSdkSessionData,
+    LiveUrlData,
+    SafetyStatus,
+    SosRequest,
+    SosResult,
+    StatusPatchRequest,
+    UserInfo,
+)
+from app.modules.app_client.service import AppClientService
+
+router = APIRouter(tags=["app-client"])
+
+DatabaseSession = Annotated[AsyncSession, Depends(get_database_session)]
+RoleHeader = Annotated[Literal["elder", "family"], Header(alias="X-Demo-Role")]
+IdempotencyHeader = Annotated[
+    str,
+    Header(alias="Idempotency-Key", min_length=8, max_length=128),
+]
+
+
+def _service(request: Request, session: AsyncSession) -> AppClientService:
+    provider: Ys7LiveAddressProvider = request.app.state.ys7_api_client
+    return AppClientService(
+        session=session,
+        settings=request.app.state.settings,
+        live_address_provider=provider,
+        sdk_credential_provider=request.app.state.ys7_api_client,
+    )
+
+
+@router.get("/users/me", response_model=ApiResponse[UserInfo])
+async def get_me(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+) -> ApiResponse[UserInfo]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    return ApiResponse(data=await service.get_me(identity), request_id=get_request_id(request))
+
+
+@router.get("/safety/status", response_model=ApiResponse[SafetyStatus])
+async def get_safety_status(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+) -> ApiResponse[SafetyStatus]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    return ApiResponse(
+        data=await service.get_safety_status(elder),
+        request_id=get_request_id(request),
+    )
+
+
+@router.post(
+    "/sos",
+    response_model=ApiResponse[SosResult],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_sos(
+    request: Request,
+    payload: SosRequest,
+    session: DatabaseSession,
+    idempotency_key: IdempotencyHeader,
+    role: RoleHeader = "elder",
+) -> ApiResponse[SosResult]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    if identity.role != "elder":
+        raise HTTPException(status_code=403, detail="elder role required")
+    elder = await service.resolve_elder(identity, None)
+    result = await service.create_sos(elder, payload, idempotency_key)
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
+@router.get("/events", response_model=ApiResponse[EventListData])
+async def list_events(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+    level: str | None = Query(default=None),
+    event_status: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+) -> ApiResponse[EventListData]:
+    del cursor
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    result = await service.list_events(
+        elder,
+        level=level,
+        status=event_status,
+        limit=limit,
+    )
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
+@router.get("/events/{event_id}", response_model=ApiResponse[EventDetailData])
+async def get_event(
+    request: Request,
+    event_id: str,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+) -> ApiResponse[EventDetailData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    result = await service.get_event(identity, event_id)
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
+@router.post("/events/{event_id}/confirm", response_model=ApiResponse[EmptyData])
+async def confirm_event(
+    request: Request,
+    event_id: str,
+    payload: ConfirmRequest,
+    session: DatabaseSession,
+    idempotency_key: IdempotencyHeader,
+    role: RoleHeader = "elder",
+) -> ApiResponse[EmptyData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    result = await service.confirm_event(
+        identity,
+        event_id,
+        action=payload.action,
+        version=payload.version,
+        idempotency_key=idempotency_key,
+    )
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
+@router.patch("/events/{event_id}/status", response_model=ApiResponse[EmptyData])
+async def patch_event_status(
+    request: Request,
+    event_id: str,
+    payload: StatusPatchRequest,
+    session: DatabaseSession,
+    idempotency_key: IdempotencyHeader,
+    role: RoleHeader = "family",
+) -> ApiResponse[EmptyData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    result = await service.patch_event_status(
+        identity,
+        event_id,
+        status=payload.status,
+        note=payload.note,
+        version=payload.version,
+        idempotency_key=idempotency_key,
+    )
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
+@router.get("/devices", response_model=ApiResponse[DeviceListData])
+async def list_devices(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+) -> ApiResponse[DeviceListData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    return ApiResponse(
+        data=await service.list_devices(elder),
+        request_id=get_request_id(request),
+    )
+
+
+@router.get("/devices/{device_id}/live-url", response_model=ApiResponse[LiveUrlData])
+async def get_live_url(
+    request: Request,
+    device_id: str,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+) -> ApiResponse[LiveUrlData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    try:
+        data = await service.get_live_url(elder, device_id)
+    except Ys7ApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ApiResponse(data=data, request_id=get_request_id(request))
+
+
+@router.get(
+    "/devices/{device_id}/live-sdk-session",
+    response_model=ApiResponse[LiveSdkSessionData],
+)
+async def get_live_sdk_session(
+    request: Request,
+    response: Response,
+    device_id: str,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+) -> ApiResponse[LiveSdkSessionData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    try:
+        data = await service.get_live_sdk_session(elder, device_id)
+    except Ys7ApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "no-store"
+    return ApiResponse(data=data, request_id=get_request_id(request))
+
+
+@router.get("/contacts", response_model=ApiResponse[ContactsData])
+async def list_contacts(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "elder",
+    elder_id: str | None = Query(default=None),
+) -> ApiResponse[ContactsData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    return ApiResponse(
+        data=await service.list_contacts(elder),
+        request_id=get_request_id(request),
+    )
+
+
+@router.get("/family/elders", response_model=ApiResponse[EldersData])
+async def list_elders(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "family",
+) -> ApiResponse[EldersData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    return ApiResponse(
+        data=await service.list_elders(identity),
+        request_id=get_request_id(request),
+    )
+
+
+@router.get("/stats/events", response_model=ApiResponse[EventsStatsData])
+async def get_event_stats(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "family",
+    elder_id: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=365),
+) -> ApiResponse[EventsStatsData]:
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    return ApiResponse(
+        data=await service.get_event_stats(elder, days),
+        request_id=get_request_id(request),
+    )
+
+
+@router.get("/stats/activity", response_model=ApiResponse[ActivityData])
+async def get_activity_stats(
+    request: Request,
+    session: DatabaseSession,
+    role: RoleHeader = "family",
+    elder_id: str | None = Query(default=None),
+    days: int = Query(default=7, ge=1, le=365),
+) -> ApiResponse[ActivityData]:
+    del days
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    await service.resolve_elder(identity, elder_id)
+    return ApiResponse(
+        data=service.get_activity_stats(),
+        request_id=get_request_id(request),
+    )

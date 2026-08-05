@@ -96,6 +96,7 @@ def build_risk_snapshot(
     visual_events: list[VisualEvent],
     elder_alone: bool,
     memory_ms: int = 120_000,
+    extra_evidence: list[dict[str, Any]] | None = None,
 ) -> FraudRiskSnapshot:
     if not speech_events:
         now = datetime.now(UTC)
@@ -130,6 +131,9 @@ def build_risk_snapshot(
         evidence.extend(
             speech_event.get("evidence_observations") or extract_speech_evidence(speech_event)
         )
+    evidence.extend(
+        item for item in (extra_evidence or []) if lower_bound <= int(item["end_ms"]) <= at_ms
+    )
     evidence.sort(
         key=lambda item: (
             int(item["end_ms"]),

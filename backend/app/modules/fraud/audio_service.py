@@ -64,6 +64,9 @@ class FraudAudioService:
                         ended_at=ended_at,
                         text=text,
                         elder_alone=metadata.elder_alone,
+                        language=segment.language,
+                        emotion=segment.emotion,
+                        audio_events=list(segment.audio_events),
                     )
                 )
                 latest_risk = fraud_result.risk
@@ -73,6 +76,9 @@ class FraudAudioService:
                         occurred_at=occurred_at,
                         ended_at=ended_at,
                         text=text,
+                        language=segment.language,
+                        emotion=segment.emotion,
+                        audio_events=list(segment.audio_events),
                     )
                 )
 

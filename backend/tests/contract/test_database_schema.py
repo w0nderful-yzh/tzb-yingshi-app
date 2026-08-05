@@ -67,13 +67,9 @@ def test_app_phase_one_tables_support_authorization_and_delivery() -> None:
     idempotency_records = Base.metadata.tables["idempotency_records"]
     risk_events = Base.metadata.tables["risk_events"]
 
-    assert {"guardian_user_id", "elder_user_id", "status"} <= set(
-        family_bindings.c.keys()
-    )
+    assert {"guardian_user_id", "elder_user_id", "status"} <= set(family_bindings.c.keys())
     assert {"phone_ciphertext", "phone_last4", "priority_order"} <= set(contacts.c.keys())
-    assert {"channel", "status", "scheduled_at", "dedup_key"} <= set(
-        deliveries.c.keys()
-    )
+    assert {"channel", "status", "scheduled_at", "dedup_key"} <= set(deliveries.c.keys())
     assert {"elder_user_id", "alert_level", "version"} <= set(risk_events.c.keys())
     assert {"scope", "idempotency_key", "request_hash", "response_body"} <= set(
         idempotency_records.c.keys()

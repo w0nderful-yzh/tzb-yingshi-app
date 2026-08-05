@@ -1,9 +1,20 @@
 # App 端联调接口设计（老人端 / 家属端）
 
-> 状态：设计稿。除标注【已实现】的接口外，其余均为【规划】，字段与路径以后端落地时的契约为准。
+> 状态：第一版 App 联调接口已落地。正式 Bearer 鉴权、可靠通知任务、联系人写接口和活动热力数据源仍按各节说明继续建设。
 > 变更需遵循 [API 契约变更流程](README.md#变更流程)。心理关怀模块接口本期暂缓，后续单独补充。
 
 第一阶段聚焦“身份与守护关系 → 统一事件 → SOS/处置 → 可靠通知 → 设备查看”的闭环。设备完整 CRUD、主动一键回呼和活动热力图列入第二阶段；数据库结构已升级到迁移头 `9b4e2f7a1c32`，接口实现状态仍以每节标记为准。
+
+当前已实现并供 Android 关闭 Mock 后联调：
+
+- `GET /users/me`、`GET /safety/status`；
+- `POST /sos`；
+- 事件列表、详情、老人确认和家属状态处置；
+- 设备列表、萤石短时直播地址和原生 SDK 直播会话；
+- 联系人只读列表、家属守护老人列表和事件统计；
+- `/stats/activity` 暂返回空集合，App 展示真实空态，不生成模拟热力数据。
+
+联调身份暂由 `X-Demo-Role: elder|family` 提供，仅在 `APP_DEMO_IDENTITY_ENABLED=true` 时生效；生产环境启用前必须替换为正式 Bearer Token。
 
 ## 1. 角色与端能力划分
 
@@ -193,7 +204,7 @@ GET /api/v1/devices
 }
 ```
 
-### 3.7 实时画面取流地址【规划】
+### 3.7 实时画面取流地址【已实现】
 
 ```text
 GET /api/v1/devices/{device_id}/live-url
@@ -205,7 +216,37 @@ GET /api/v1/devices/{device_id}/live-url
 { "code": 0, "message": "success", "data": { "url": "https://...flv", "protocol": "flv", "expires_in": 300 }, "request_id": "req_xxx" }
 ```
 
-### 3.8 守护设置查询【规划】
+标准 FLV/HLS 地址适用于 H.264 设备。设备输出 H.265 时，萤石标准地址会返回“视频编码类型非 H264”的提示画面，Android App 应改用下方原生 SDK 会话接口。
+
+### 3.8 原生 SDK 直播会话【已实现】
+
+```text
+GET /api/v1/devices/{device_id}/live-sdk-session
+```
+
+用于 Android 端通过 `EZOpenSDK` 播放设备原始 H.264/H.265 码流：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "app_key": "<ys7-app-key>",
+    "access_token": "<short-lived-access-token>",
+    "device_serial": "camera-01",
+    "channel_no": 1,
+    "expires_in": 300
+  },
+  "request_id": "req_xxx"
+}
+```
+
+- 响应携带 `Cache-Control: no-store`，客户端只在内存中持有本次会话，不写日志和持久化存储；
+- `AppSecret` 只保存在后端，绝不下发客户端；
+- 当前 Demo 使用萤石 AccessToken 授权。生产环境应启用正式用户鉴权，并切换为设备/通道级小权限 Token；
+- SDK 内部调试日志必须关闭，因为其请求日志可能包含 AccessToken。
+
+### 3.9 守护设置查询【规划】
 
 ```text
 GET /api/v1/settings
@@ -463,7 +504,7 @@ Bearer Token 不放在 WebSocket 查询参数中，避免被代理访问日志�
 ## 7. 暂缓清单（本期不做）
 
 - 家属主动一键回呼老人；紧急事件的服务端自动外呼仍属于第一阶段；
-- 家属端新增、修改和解绑萤石设备；第一阶段只提供已绑定设备查询和短时直播地址；
+- 家属端新增、修改和解绑萤石设备；第一阶段只提供已绑定设备查询、短时直播地址和原生 SDK 直播会话；
 - 活动热力图 `GET /stats/activity` 及其小时级活动汇总任务；
 - 心理关怀模块全部接口：情绪打卡（`POST /moods`）、情绪趋势（`GET /moods/trend`）、AI 陪伴对话（`POST /companion/chat`）；
 - 部署与运维相关内容（docker 化、CI 发布）；

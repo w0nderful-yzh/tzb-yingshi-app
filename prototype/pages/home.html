@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>首页 · 安全总览（老人端）</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>信号 · WiFi · 电量</span></div>
+
+  <div class="app-header">
+    <h1>早上好，王奶奶</h1>
+    <div class="sub">2026年8月4日 星期二 · 家中安全守护中</div>
+    <!-- 接口占位：GET /api/v1/users/me（规划） -->
+    <span class="api-tag">GET /api/v1/users/me · 占位</span>
+  </div>
+
+  <div class="content">
+
+    <!-- 安全状态大卡：一句话结论 + 风险等级 -->
+    <div class="card" style="background:var(--safe-bg); border-color:#bfe3cb;">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>
+        </svg>
+        <div>
+          <div style="font-size:26px; font-weight:800; color:#15803d;">一切正常</div>
+          <div class="note">3 台设备在线 · 最近检查：刚刚</div>
+          <!-- 接口占位：GET /api/v1/devices（规划） -->
+        </div>
+      </div>
+      <div class="mt12" style="display:flex; gap:8px;">
+        <span class="level level-safe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>
+          当前风险：安全（S0）
+        </span>
+      </div>
+      <span class="api-tag">GET /api/v1/events?status=active · 占位</span>
+      <span class="api-tag">WS /api/v1/ws/events · 实时推送 · 占位</span>
+    </div>
+
+    <!-- 紧急求助：老人端最大按钮 -->
+    <a class="btn btn-danger" href="alert-detail.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/>
+      </svg>
+      紧急求助（长按 3 秒）
+    </a>
+    <div class="note mt8" style="text-align:center;">长按后将同时呼叫子女并发送定位</div>
+
+    <!-- 今日守护概览 -->
+    <div class="card">
+      <h2>今日守护</h2>
+      <div class="grid2">
+        <div class="stat"><div class="n" style="color:var(--safe);">0</div><div class="l">风险事件</div></div>
+        <div class="stat"><div class="n" style="color:var(--primary);">6.2<span style="font-size:16px;">h</span></div><div class="l">活动时长</div></div>
+        <div class="stat"><div class="n" style="color:var(--primary);">1</div><div class="l">来电已识别·安全</div></div>
+        <div class="stat"><div class="n">良好</div><div class="l">睡眠（昨晚）</div></div>
+      </div>
+      <!-- 接口占位：GET /api/v1/stats/daily（规划） -->
+      <span class="api-tag">GET /api/v1/stats/daily · 占位</span>
+    </div>
+
+    <!-- 设备状态 -->
+    <div class="card">
+      <h2>设备状态</h2>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        客厅摄像头
+        <span class="v" style="color:var(--safe);">在线</span>
+      </div>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        卧室摄像头
+        <span class="v" style="color:var(--safe);">在线</span>
+      </div>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        厨房摄像头
+        <span class="v" style="color:var(--warn-1);">信号弱</span>
+      </div>
+      <!-- 接口占位：GET /api/v1/devices（规划） -->
+      <span class="api-tag">GET /api/v1/devices · 占位</span>
+    </div>
+
+    <!-- 最近消息入口 -->
+    <div class="card">
+      <h2>最近提醒</h2>
+      <div class="alert-item l1">
+        <div class="ico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div>
+          <div class="t">提醒：久坐 1 小时</div>
+          <div class="d">建议起身活动一下</div>
+          <div class="time">今天 10:32</div>
+        </div>
+      </div>
+      <a class="btn btn-outline" href="alerts.html">查看全部消息</a>
+      <span class="api-tag">GET /api/v1/events · 占位</span>
+    </div>
+
+    <!-- 语音辅助 -->
+    <div class="card" style="display:flex; align-items:center; gap:12px;">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1b5fc1" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+      <div style="flex:1;">
+        <div style="font-size:20px; font-weight:700;">语音助手已开启</div>
+        <div class="note">说“小安小安”可语音播报状态、读消息</div>
+      </div>
+    </div>
+
+  </div>
+
+  <nav class="tabbar">
+    <a class="active" href="home.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+      首页
+    </a>
+    <a href="monitor.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      监控
+    </a>
+    <a href="alerts.html">
+      <span class="badge">2</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      消息
+    </a>
+    <a href="care.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      关怀
+    </a>
+    <a href="profile.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      我的
+    </a>
+  </nav>
+</div>
+</body>
+</html>

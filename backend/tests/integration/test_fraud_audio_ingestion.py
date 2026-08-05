@@ -29,6 +29,9 @@ class FakeSpeechRecognizer:
                 start_ms=500,
                 end_ms=min(2_500, duration_ms),
                 text="把短信验证码告诉我，不要告诉家人",
+                language="zh",
+                emotion="ANGRY",
+                audio_events=("speech",),
             )
         ]
 
@@ -94,6 +97,9 @@ def test_audio_chunk_is_transcribed_with_absolute_time_and_analyzed(
     assert data["status"] == "accepted"
     assert data["duration_ms"] == 3_000
     assert data["transcript_segments"][0]["occurred_at"] == ("2026-08-04T12:00:00.500000+08:00")
+    assert data["transcript_segments"][0]["language"] == "zh"
+    assert data["transcript_segments"][0]["emotion"] == "ANGRY"
+    assert data["transcript_segments"][0]["audio_events"] == ["speech"]
     assert data["risk"]["state"] == "S5_CRITICAL_CONTROL"
     assert recognizer.call_count == 1
 

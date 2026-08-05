@@ -21,3 +21,13 @@ def test_ys7_live_quality_rejects_unsupported_value(
 
     with pytest.raises(ValidationError, match="less than or equal to 3"):
         Settings(environment="test", _env_file=None)
+
+
+def test_fraud_llm_api_key_is_redacted() -> None:
+    settings = Settings(
+        environment="test",
+        fraud_llm_api_key="private-llm-key",
+        _env_file=None,
+    )
+
+    assert "private-llm-key" not in repr(settings)
