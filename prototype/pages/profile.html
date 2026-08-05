@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的 · 个人与设备管理</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>信号 · WiFi · 电量</span></div>
+
+  <div class="app-header">
+    <h1>我的</h1>
+    <div class="sub">个人信息 · 设备 · 紧急联系人</div>
+  </div>
+
+  <div class="content">
+
+    <!-- 个人卡片 -->
+    <div class="card" style="display:flex; align-items:center; gap:14px;">
+      <div style="width:64px; height:64px; border-radius:50%; background:#dbe7fb; display:flex; align-items:center; justify-content:center;">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#1b5fc1" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
+      </div>
+      <div>
+        <div style="font-size:23px; font-weight:800;">王秀兰</div>
+        <div class="note">72 岁 · 独居 · 已由 2 位家属守护</div>
+        <!-- 接口占位：GET /api/v1/users/me（规划） -->
+        <span class="api-tag">GET /api/v1/users/me · 占位</span>
+      </div>
+    </div>
+
+    <!-- 紧急联系人 -->
+    <div class="card">
+      <h2>紧急联系人（按顺序呼叫）</h2>
+      <div class="row">
+        <span class="level level-l3" style="font-size:14px;">1</span>
+        儿子 张伟
+        <span class="v">138****6688</span>
+      </div>
+      <div class="row">
+        <span class="level level-l2" style="font-size:14px;">2</span>
+        女儿 张莉
+        <span class="v">139****2233</span>
+      </div>
+      <div class="row">
+        <span class="level level-l1" style="font-size:14px;">3</span>
+        社区网格员 刘姐
+        <span class="v">0571-****120</span>
+      </div>
+      <a class="btn btn-outline mt12" href="#">编辑联系人（需家属确认）</a>
+      <!-- 接口占位：GET/PUT /api/v1/contacts（规划） -->
+      <span class="api-tag">GET/PUT /api/v1/contacts · 占位</span>
+    </div>
+
+    <!-- 设备管理 -->
+    <div class="card">
+      <h2>我的设备</h2>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        客厅摄像头 camera-01
+        <span class="v" style="color:var(--safe);">在线</span>
+      </div>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        卧室摄像头 camera-02
+        <span class="v" style="color:var(--safe);">在线</span>
+      </div>
+      <div class="row">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        厨房摄像头 camera-03
+        <span class="v" style="color:var(--warn-1);">信号弱</span>
+      </div>
+      <a class="btn btn-ghost mt12" href="#">＋ 添加萤石设备（家属协助扫码）</a>
+      <!-- 接口占位：GET /api/v1/devices（规划） -->
+      <span class="api-tag">GET /api/v1/devices · 占位</span>
+    </div>
+
+    <!-- 监测开关 -->
+    <div class="card">
+      <h2>守护设置</h2>
+      <div class="row">防诈骗电话监听 <span class="v" style="color:var(--safe);">已开启</span></div>
+      <div class="row">跌倒检测 <span class="v" style="color:var(--safe);">已开启</span></div>
+      <div class="row">夜间离床提醒 <span class="v" style="color:var(--safe);">已开启</span></div>
+      <div class="row">语音播报提示 <span class="v" style="color:var(--safe);">已开启</span></div>
+      <div class="row">字体大小 <span class="v">特大</span></div>
+      <div class="note mt8">隐私承诺：不保存连续音视频，仅保留风险事件瞬间证据，可随时关闭。</div>
+      <!-- 接口占位：GET/PUT /api/v1/settings（规划） -->
+      <span class="api-tag">GET/PUT /api/v1/settings · 占位</span>
+    </div>
+
+    <!-- 家属绑定 -->
+    <div class="card">
+      <h2>家属守护</h2>
+      <div class="note">家属扫码绑定后，可查看安全状态、接收告警、远程协助管理设备。</div>
+      <div style="margin:12px auto; width:140px; height:140px; border:2px dashed var(--line); border-radius:12px; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); font-size:15px;">
+        绑定二维码占位
+      </div>
+      <!-- 接口占位：POST /api/v1/family/bind-code（规划） -->
+      <span class="api-tag">POST /api/v1/family/bind-code · 占位</span>
+    </div>
+
+  </div>
+
+  <nav class="tabbar">
+    <a href="home.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+      首页
+    </a>
+    <a href="monitor.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      监控
+    </a>
+    <a href="alerts.html">
+      <span class="badge">2</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      消息
+    </a>
+    <a href="care.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      关怀
+    </a>
+    <a class="active" href="profile.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      我的
+    </a>
+  </nav>
+</div>
+</body>
+</html>

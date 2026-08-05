@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>告警详情 · 分级处置</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  /* 分级处置流程步骤条 */
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step { display: flex; gap: 12px; }
+  .step .dot {
+    flex: 0 0 auto; width: 34px; display: flex; flex-direction: column; align-items: center;
+  }
+  .step .dot i {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--safe); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700;
+  }
+  .step .dot.pending i { background: #c4c9d2; }
+  .step .dot::after { content: ""; width: 3px; flex: 1; background: var(--line); min-height: 26px; }
+  .step:last-child .dot::after { display: none; }
+  .step .txt { padding-bottom: 20px; font-size: 18px; }
+  .step .txt .t { font-weight: 700; }
+  .step .txt .d { font-size: 15px; color: var(--text-secondary); }
+
+  /* 紧急呼叫确认弹层 */
+  .sos-panel {
+    border: 3px solid var(--warn-3);
+    border-radius: var(--radius);
+    background: var(--warn-3-bg);
+    padding: 16px;
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .sos-panel .big { font-size: 24px; font-weight: 800; color: var(--warn-3); }
+  .sos-progress { height: 14px; background: #fff; border-radius: 8px; overflow: hidden; margin: 12px 0; border: 1px solid #f0b9b9; }
+  .sos-progress i { display: block; height: 100%; width: 62%; background: var(--warn-3); }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>信号 · WiFi · 电量</span></div>
+
+  <div class="app-header" style="background:var(--warn-3-bg); border-bottom:2px solid var(--warn-3);">
+    <h1 style="color:var(--warn-3);">
+      <span class="level level-l3" style="font-size:19px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        紧急告警
+      </span>
+    </h1>
+    <div class="sub">疑似跌倒 · 今天 15:02 · 客厅摄像头</div>
+    <!-- 接口占位：GET /api/v1/events/{event_id}（规划） -->
+    <span class="api-tag">GET /api/v1/events/evt-demo-001 · 占位</span>
+  </div>
+
+  <div class="content">
+
+    <!-- 一键呼救确认区（老人端：按住进度条确认，防误触） -->
+    <div class="sos-panel">
+      <div class="big">我没事 / 我需要帮助</div>
+      <div class="note">若 60 秒内无人确认，将自动呼叫紧急联系人</div>
+      <div class="sos-progress"><i></i></div>
+      <div class="grid2">
+        <a class="btn btn-safe" href="alerts.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>
+          我没事
+        </a>
+        <a class="btn btn-danger" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          呼叫帮助
+        </a>
+      </div>
+      <!-- 接口占位：PATCH /api/v1/events/{event_id}/status（规划） -->
+      <span class="api-tag">PATCH /api/v1/events/{id}/status · 占位</span>
+    </div>
+
+    <!-- 现场证据 -->
+    <div class="card" style="padding:10px;">
+      <div class="video-box" style="aspect-ratio:16/9;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15l-5-5-7 7"/></svg>
+        <div style="font-size:16px;">事件截图证据占位（脱敏后展示）</div>
+      </div>
+      <div class="note mt8">依据隐私规范，仅保留事件瞬间截图，不保存连续录像。</div>
+      <span class="api-tag">imageUrl 字段 · 来自风险事件 · 占位</span>
+    </div>
+
+    <!-- AI 判断依据（可解释） -->
+    <div class="card">
+      <h2>系统判断依据</h2>
+      <div class="row"><span class="k">倒地姿态持续</span><span class="v">25 秒</span></div>
+      <div class="row"><span class="k">倒地前运动变化</span><span class="v">突然下降</span></div>
+      <div class="row"><span class="k">呼救语音检测</span><span class="v">未检测到</span></div>
+      <div class="row"><span class="k">置信度</span><span class="v">0.87（辅助判断）</span></div>
+      <div class="note mt8">该结果为 AI 辅助判断，不替代医疗急救专业结论，请以人工确认为准。</div>
+    </div>
+
+    <!-- 通知家属流程 -->
+    <div class="card">
+      <h2>通知进度</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="dot"><i>1</i></div>
+          <div class="txt"><div class="t">15:02 告警生成</div><div class="d">跌倒模块上报统一风险事件</div></div>
+        </div>
+        <div class="step">
+          <div class="dot"><i>2</i></div>
+          <div class="txt"><div class="t">15:02 已通知家属</div><div class="d">儿子张伟（App推送+短信）· 女儿张莉（App推送）</div></div>
+        </div>
+        <div class="step">
+          <div class="dot pending"><i>3</i></div>
+          <div class="txt"><div class="t">等待确认</div><div class="d">60 秒无响应将自动拨打张伟电话</div></div>
+        </div>
+        <div class="step">
+          <div class="dot pending"><i>4</i></div>
+          <div class="txt"><div class="t">必要时呼叫 120</div><div class="d">需家属或本人确认后发起</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 家属操作（家属端视角按钮，此处原型并列展示） -->
+    <a class="btn btn-primary" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      一键呼叫母亲（家属端）
+    </a>
+    <a class="btn btn-outline" href="monitor.html">查看客厅实时画面</a>
+    <a class="btn btn-ghost" href="alerts.html">标记为误报</a>
+
+  </div>
+</div>
+</body>
+</html>

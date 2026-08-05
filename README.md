@@ -6,11 +6,17 @@
 
 ## 当前状态
 
-仓库目前只完成了**工程目录和协作文档初始化**。
+仓库目前已完成 **FastAPI 基础骨架**，可以启动后端并访问健康检查和 OpenAPI 文档。
 
 - 尚未创建 Android 可运行工程；
-- 尚未创建 FastAPI 可运行服务；
-- 尚未接入数据库、模型、萤石平台或 WebSocket；
+- 已创建 FastAPI 应用工厂、配置、请求 ID、统一响应和异常处理；
+- 已提供 `GET /api/v1/health` 和后端自动化测试；
+- 已实现萤石事件的模拟契约接收、原文落盘、去重、异步队列和统一视觉事件查询；
+- 尚未取得正式萤石 Topic、签名/解密规则和完整消息样例，因此当前接收协议不能视为正式平台对接；
+- 已创建 PostgreSQL 数据库结构、SQLAlchemy Model 和 Alembic 首个迁移；
+- 防诈规则、轻量文本分类、证据融合和 S0-S5 状态机已迁入，已提供转写分析和活动会话查询接口；
+- 防诈风险事件已接 PostgreSQL Repository；萤石视觉事件、活动防诈会话和原始消息消费仍使用内存/文件实现；
+- 已接入萤石标准直播地址取流、FFmpeg 连续音轨切块和 SenseVoiceSmall 转写；正式云信令协议、跌倒业务、统一事件查询与处置、WebSocket 尚未接入；
 - 尚未提供任何准确率、召回率或实时性结论。
 
 后续功能必须通过独立分支和 Pull Request 逐步实现，README 中的规划内容不得被表述为已完成功能。
@@ -56,28 +62,31 @@ flowchart TD
     WS --> Android
 ```
 
-FastAPI 规划为唯一后端入口。Android 不直接调用算法脚本、不直接访问数据库，也不保存萤石 AppSecret 或其他服务端密钥。
+FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接访问数据库，也不保存萤石 AppSecret 或其他服务端密钥。
 
-## 技术栈规划
+## 技术栈
 
-| 领域 | 规划选择 |
-|---|---|
-| Android | Kotlin、Jetpack Compose、MVVM |
-| 后端 | FastAPI、Pydantic |
-| 数据库 | PostgreSQL、SQLAlchemy 2.x、Alembic |
-| 实时通知 | WebSocket |
-| Python依赖 | uv |
-| 测试 | Pytest、Android Unit Test |
-| 摄像头接入 | 萤石设备能力、AI服务和云信令 |
+| 领域 | 选择 | 状态 |
+|---|---|---|
+| Android | Kotlin、Jetpack Compose、MVVM | 规划 |
+| 后端 | FastAPI、Pydantic | 已落地基础骨架 |
+| 数据库 | PostgreSQL、SQLAlchemy 2.x、Alembic | 已落地结构和迁移 |
+| 实时通知 | WebSocket | 规划 |
+| Python依赖 | uv | 已落地 |
+| 测试 | Pytest、Android Unit Test | 后端已落地基础契约测试 |
+| 摄像头接入 | 萤石设备能力、AI服务和云信令 | 规划 |
+| 防诈推理 | 规则、字符 TF-IDF、S0-S5 状态机 | 已落地首版 |
+| 语音识别 | SenseVoiceSmall、FunASR | 已落地短 WAV 音频块 |
+| 媒体取流 | 萤石直播地址、FFmpeg | 已落地单设备音轨首版 |
 
-技术栈尚未落地，首次引入依赖时必须同步更新本文档和对应架构决策。
+新增依赖或正式落地规划技术时，必须同步更新本文档和对应架构决策。
 
 ## 仓库目录
 
 ```text
 .
 ├── android/                  Android App预留目录
-├── backend/                  FastAPI模块化单体预留目录
+├── backend/                  FastAPI模块化单体
 │   ├── app/
 │   │   ├── api/v1/          API路由
 │   │   ├── common/          公共模型和工具
@@ -104,17 +113,120 @@ FastAPI 规划为唯一后端入口。Android 不直接调用算法脚本、不�
 
 ## 本地启动
 
-当前没有可运行代码，因此没有启动命令。
+后端要求 Python 3.12 和 [uv](https://docs.astral.sh/uv/)。首次运行：
 
-未来后端和 Android 工程落地后，必须在此处补充：
+```bash
+cp .env.example .env
+cd backend
+uv sync --extra sensevoice --dev
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+```
 
-- 环境要求与依赖安装；
-- `.env.example` 使用方式；
-- 数据库初始化和迁移；
-- 后端启动与 OpenAPI 地址；
-- Android 模拟器及真机联调地址；
-- Mock 数据和离线演示流程；
-- 测试、检查和构建命令。
+启动后可访问：
+
+- 健康检查：`http://127.0.0.1:8000/api/v1/health`
+- OpenAPI 文档：`http://127.0.0.1:8000/docs`
+- ReDoc 文档：`http://127.0.0.1:8000/redoc`
+
+后端提交前检查：
+
+```bash
+cd backend
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app
+uv run pytest
+```
+
+数据库初始化、Android 联调、Mock 数据和离线演示流程将在对应能力落地后补充。
+
+本地数据库连接通过根目录 `.env` 中的 `APP_DATABASE_URL` 配置。真实用户名和密码不得写入 README 或 `.env.example`。
+
+### 模拟萤石事件
+
+在本地 `.env` 中启用接收器并设置临时共享令牌：
+
+```dotenv
+APP_YS7_SIGNAL_ENABLED=true
+APP_YS7_WEBHOOK_TOKEN=local-demo-token
+```
+
+服务启动后发送模拟事件：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/integrations/ys7/events \
+  -H 'Content-Type: application/json' \
+  -H 'X-YS7-Webhook-Token: local-demo-token' \
+  -d '{
+    "messageId": "msg-demo-001",
+    "eventId": "event-demo-001",
+    "deviceId": "camera-01",
+    "timestamp": "2026-08-04T12:00:00+08:00",
+    "eventType": "phone_call",
+    "confidence": 0.91,
+    "peopleCount": 1,
+    "boxes": []
+  }'
+```
+
+统一视觉事件通过 `GET /api/v1/fraud/visual-events` 查询。原始消息默认写入 `backend/storage/ys7/raw/`，该目录不提交 Git。
+
+### 防诈转写分析
+
+SenseVoice 接入前，可直接提交带时区的转写片段验证业务链路：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/fraud/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "call-demo-001",
+    "source_event_id": "speech-demo-001",
+    "device_id": "camera-01",
+    "occurred_at": "2026-08-04T12:00:05+08:00",
+    "ended_at": "2026-08-04T12:00:08+08:00",
+    "text": "我是银行客服，把短信验证码告诉我",
+    "elder_alone": true
+  }'
+```
+
+同设备近 120 秒的萤石视觉事件会作为上下文参与状态机。活动会话当前保存在进程内存；非 S0 风险快照在数据库启用时幂等写入 `risk_events`。
+
+### SenseVoice 音频块
+
+安装可选模型运行时并启用功能：
+
+```bash
+cd backend
+uv sync --extra sensevoice --dev
+```
+
+```dotenv
+APP_SENSEVOICE_ENABLED=true
+APP_SENSEVOICE_MODEL=iic/SenseVoiceSmall
+APP_SENSEVOICE_DEVICE=cpu
+```
+
+随后通过 `POST /api/v1/fraud/audio/chunks` 上传不超过 15 秒的 WAV 块。后端不长期保存上传音频，SenseVoice 转写会带上由 `started_at` 换算的绝对时间并自动进入防诈状态机。完整字段见 [API 契约](docs/api/README.md)。
+
+### 萤石直播音轨
+
+拿到萤石参数后，在本地 `.env` 中配置：
+
+```dotenv
+APP_YS7_MEDIA_ENABLED=true
+APP_YS7_APP_KEY=your-app-key
+APP_YS7_APP_SECRET=your-app-secret
+APP_YS7_DEVICE_SERIAL=your-device-serial
+APP_YS7_CHANNEL_NO=1
+APP_YS7_LIVE_PROTOCOL=flv
+APP_YS7_LIVE_QUALITY=2
+APP_YS7_ELDER_ALONE=false
+```
+
+也可仅配置 `APP_YS7_ACCESS_TOKEN`，但固定 Token 过期后需要人工更新；配置 AppKey/AppSecret 时，后端会自动获取并缓存 Token。启动后通过 `GET /api/v1/integrations/ys7/media/status` 查看连接、重连、队列和已处理音频块状态。
+
+媒体 Worker 获取萤石直播地址后，通过 FFmpeg 只解码音轨为 16 kHz 单声道 PCM，每 5 秒直接调用 `FraudAudioService`。音频不落盘；当 SenseVoice 处理速度低于实时流时，有界队列会丢弃最旧块以避免告警延迟持续累积。
 
 ## 数据与隐私
 

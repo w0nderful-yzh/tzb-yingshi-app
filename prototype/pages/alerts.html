@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>告警消息中心</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>信号 · WiFi · 电量</span></div>
+
+  <div class="app-header">
+    <h1>消息中心</h1>
+    <div class="sub">2 条未读 · 按风险等级排序</div>
+    <!-- 接口占位：GET /api/v1/events（规划） -->
+    <span class="api-tag">GET /api/v1/events · 占位</span>
+  </div>
+
+  <div class="content">
+
+    <!-- 分级筛选 -->
+    <div class="chips">
+      <button class="chip on">全部</button>
+      <button class="chip" style="border-color:var(--warn-3); color:var(--warn-3);">紧急</button>
+      <button class="chip" style="border-color:var(--warn-2); color:var(--warn-2);">警告</button>
+      <button class="chip" style="border-color:var(--warn-1); color:var(--warn-1);">提醒</button>
+      <button class="chip">已处理</button>
+    </div>
+
+    <!-- 紧急 -->
+    <div class="alert-item l3">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="t">【紧急】疑似跌倒</div>
+        <div class="d">客厅检测到倒地并持续 25 秒未起身</div>
+        <div class="time">今天 15:02 · 已通知儿子张伟</div>
+      </div>
+      <span class="st">待确认</span>
+    </div>
+
+    <!-- 警告：诈骗 -->
+    <div class="alert-item l2">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="t">【警告】疑似诈骗电话</div>
+        <div class="d">来电自称“银行客服”并索要短信验证码，风险等级 S4</div>
+        <div class="time">今天 11:20 · 通话 2 分 14 秒</div>
+      </div>
+      <span class="st">待确认</span>
+    </div>
+
+    <!-- 提醒：久坐 -->
+    <div class="alert-item l1">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="t">【提醒】久坐 1 小时</div>
+        <div class="d">建议起身活动，倒杯水</div>
+        <div class="time">今天 10:32</div>
+      </div>
+      <span class="st done">已读</span>
+    </div>
+
+    <!-- 提醒：夜间离床 -->
+    <div class="alert-item l1">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="t">【提醒】夜间离床 3 次</div>
+        <div class="d">昨夜离床次数略多于平常，注意休息</div>
+        <div class="time">今天 07:00</div>
+      </div>
+      <span class="st done">已读</span>
+    </div>
+
+    <!-- 已处理示例 -->
+    <div class="alert-item l2" style="opacity:.62;">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div class="t">【警告】陌生人到访</div>
+        <div class="d">门口检测到陌生面孔，停留 4 分钟</div>
+        <div class="time">昨天 16:48 · 儿子已确认：快递员</div>
+      </div>
+      <span class="st done">已处理</span>
+    </div>
+
+    <!-- 点击进入详情 -->
+    <a class="btn btn-primary" href="alert-detail.html">查看「疑似跌倒」详情与处置</a>
+    <!-- 接口占位：GET /api/v1/events/{event_id}（规划） -->
+    <span class="api-tag">GET /api/v1/events/{event_id} · 占位</span>
+
+  </div>
+
+  <nav class="tabbar">
+    <a href="home.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+      首页
+    </a>
+    <a href="monitor.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      监控
+    </a>
+    <a class="active" href="alerts.html">
+      <span class="badge">2</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      消息
+    </a>
+    <a href="care.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      关怀
+    </a>
+    <a href="profile.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      我的
+    </a>
+  </nav>
+</div>
+</body>
+</html>
