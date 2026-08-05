@@ -85,3 +85,35 @@ class FraudAnalyzeData(BaseModel):
     status: Literal["accepted", "duplicate"]
     speech_event: dict[str, Any]
     risk: FraudRiskSnapshot
+
+
+class FraudAudioChunkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=128)
+    chunk_id: str = Field(min_length=1, max_length=128)
+    device_id: str = Field(min_length=1, max_length=256)
+    started_at: datetime
+    elder_alone: bool = False
+
+    @field_validator("started_at")
+    @classmethod
+    def require_started_at_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("audio chunk started_at must include a timezone")
+        return value
+
+
+class TranscriptSegment(BaseModel):
+    source_event_id: str
+    occurred_at: datetime
+    ended_at: datetime
+    text: str
+
+
+class FraudAudioChunkData(BaseModel):
+    status: Literal["accepted", "duplicate"]
+    chunk_id: str
+    duration_ms: int
+    transcript_segments: list[TranscriptSegment]
+    risk: FraudRiskSnapshot | None

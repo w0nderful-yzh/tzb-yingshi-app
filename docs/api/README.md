@@ -1,8 +1,10 @@
 # API契约
 
+App 端联调接口设计（老人端 / 家属端分角色）见 [app-client-api.md](app-client-api.md)。
+
 ## 当前状态
 
-当前已实现健康检查、萤石模拟事件接收、接收器状态、统一视觉事件查询、防诈转写分析和活动会话风险查询。正式萤石消息协议仍需等待 Topic、签名/解密规则和完整消息样例后补充。
+当前已实现健康检查、萤石模拟事件接收、接收器状态、萤石直播音轨状态、统一视觉事件查询、防诈转写分析、SenseVoice 音频块分析和活动会话风险查询。正式萤石消息协议仍需等待 Topic、签名/解密规则和完整消息样例后补充。
 
 ## 统一前缀
 
@@ -89,6 +91,17 @@ phone_call | people_count | person_detected
 
 返回接收功能开关、后台 Worker 状态和当前队列深度。
 
+### `GET /api/v1/integrations/ys7/media/status`
+
+返回直播音轨 Worker 的运行状态：
+
+- `running`：后台任务是否存活；
+- `connected`：当前是否已连接直播流；
+- `session_id`：本次进程中的防诈直播会话；
+- `queue_depth`：等待 SenseVoice 的音频块数量；
+- `chunks_processed/chunks_dropped`：成功分析和为保持实时性而丢弃的块数；
+- `reconnect_attempts/last_error`：当前重连次数和不含凭证的错误摘要。
+
 ### `GET /api/v1/fraud/visual-events`
 
 查询后台适配后的统一视觉事件，支持 `device_id` 和 `limit` 参数。返回结果按 `occurred_at` 倒序排列，而不是按接收顺序排列。
@@ -110,6 +123,31 @@ phone_call | people_count | person_detected
 ```
 
 响应中的 `risk` 包含 `state`、`risk_level`、`decision`、`transition_reason`、`next_stage_conditions`、`evidence_chain` 和 `state_history`。服务会按事件发生时间重放当前会话近 120 秒的语音证据，并合并同设备的萤石视觉事件。非 S0 结果在数据库启用时写入 `risk_events`。
+
+### `POST /api/v1/fraud/audio/chunks`
+
+以 `multipart/form-data` 上传短 WAV 音频块。服务先校验 WAV，再在线程中调用 SenseVoice，最后把转写片段交给与 `/fraud/analyze` 相同的业务链路。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `audio` | WAV 文件 | 单声道或双声道，8–48 kHz，不超过 15 秒和配置的字节上限 |
+| `session_id` | string | 防诈会话 ID |
+| `chunk_id` | string | 当前会话内稳定的音频块 ID，用于避免重复推理 |
+| `device_id` | string | 外部摄像头设备 ID |
+| `started_at` | datetime | 音频块第一个采样点的绝对时间，必须带时区 |
+| `elder_alone` | boolean | 是否已明确老人独处 |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/fraud/audio/chunks \
+  -F 'audio=@chunk.wav;type=audio/wav' \
+  -F 'session_id=call-demo-001' \
+  -F 'chunk_id=chunk-001' \
+  -F 'device_id=camera-01' \
+  -F 'started_at=2026-08-04T12:00:00+08:00' \
+  -F 'elder_alone=true'
+```
+
+相同设备、会话和 `chunk_id` 重复提交时返回 `status=duplicate`，不会再次运行 SenseVoice。音频无有效语音时 `transcript_segments` 为空，`risk` 返回已有会话快照或 `null`。功能未启用或模型依赖缺失返回 HTTP 503，模型执行失败返回 HTTP 502。
 
 ### `GET /api/v1/fraud/sessions/{session_id}`
 
@@ -141,6 +179,15 @@ phone_call | people_count | person_detected
 | 401 | Webhook 令牌无效 |
 | 422 | 消息字段、时间、事件类型或检测框不合法 |
 | 503 | 接收器未启用、令牌未配置或队列已满 |
+
+SenseVoice 音频块接口还可能返回：
+
+| HTTP 状态 | 含义 |
+|---:|---|
+| 415 | 上传内容不是 WAV 音频 |
+| 422 | WAV、时间或块元数据不合法 |
+| 502 | SenseVoice 已安装但本次推理失败 |
+| 503 | 音频接收未启用或模型运行依赖未安装 |
 
 ## 变更流程
 

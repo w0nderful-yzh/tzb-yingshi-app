@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前已落地 FastAPI 公共入口、配置、请求 ID、统一响应、异常处理、版本化路由、萤石模拟事件适配、防诈 Service/状态机和 PostgreSQL 风险事件写入。跌倒业务、统一事件查询与处置、WebSocket 和正式萤石平台鉴权/解密仍未实现。
+当前已落地 FastAPI 公共入口、配置、请求 ID、统一响应、异常处理、版本化路由、萤石模拟事件适配、萤石直播音轨拉流、SenseVoice 短音频块、防诈 Service/状态机和 PostgreSQL 风险事件写入。跌倒业务、多设备动态取流、统一事件查询与处置、WebSocket 和正式萤石云信令鉴权/解密仍未实现。
 
 ## 已实现后端入口
 
@@ -35,6 +35,9 @@ Ys7SignalListener
               ├──────────────→ GET /api/v1/fraud/visual-events
               ↓
 POST /api/v1/fraud/analyze ← 带绝对时间的语音转写
+POST /api/v1/fraud/audio/chunks
+              ↓ 后台线程 SenseVoiceSmall
+       绝对时间转写片段
               ↓
        FraudSessionService
               ↓
@@ -48,6 +51,26 @@ POST /api/v1/fraud/analyze ← 带绝对时间的语音转写
 当前使用内存队列、内存视觉事件仓库、内存活动防诈会话和磁盘原始消息；状态机生成的非 S0 风险快照已持久化到 PostgreSQL。原始消息可以用于排查和演示，但进程重启后尚不会自动扫描未消费文件；后续应将接收链路接入已有 Inbox/Visual Event 表并实现启动恢复。
 
 当前 HTTP 共享令牌只是正式签名协议到位前的开发保护措施。拿到萤石正式消息样例后，只替换 `external/ys7/` 中的鉴权、解密和解析代码，不改变统一视觉事件和防诈业务层。
+
+SenseVoice 通过 `SpeechRecognizer` 端口与业务层隔离，FunASR 只存在于 `infrastructure/external/sensevoice/`。模型懒加载且推理串行化；API 使用工作线程调用同步模型，模型缺失或失败不会阻止健康检查、萤石视觉接收和已有转写 API。
+
+## 萤石直播音轨
+
+```text
+AppKey/AppSecret
+      ↓
+Ys7ApiClient ── 获取/缓存 accessToken
+      ↓
+获取标准直播地址（FLV / RTMP / HLS）
+      ↓
+FfmpegPcmStreamSource
+      ↓ 16 kHz mono PCM，每 5 秒
+实时有界队列
+      ↓
+FraudAudioService → SenseVoice → S0-S5
+```
+
+Token、直播地址和设备验证码不得写入日志。媒体 Worker 每次重连重新获取直播地址，并采用 1–60 秒指数退避。当前仅处理音轨；视频诈骗证据仍优先来自萤石云算法事件，避免重复持续运行本地视觉模型。
 
 ## 数据库
 

@@ -12,6 +12,7 @@ from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.modules.fraud.schemas import VisualEvent
 from app.modules.fraud.visual_event_store import VisualEventStore
 from app.workers.ys7_event_worker import Ys7EventWorker
+from app.workers.ys7_media_stream_worker import Ys7MediaStreamWorker
 
 router = APIRouter(tags=["ys7"])
 
@@ -26,6 +27,18 @@ class SignalStatusData(BaseModel):
     enabled: bool
     worker_running: bool
     queue_depth: int
+
+
+class MediaStatusData(BaseModel):
+    enabled: bool
+    running: bool
+    connected: bool
+    session_id: str | None
+    queue_depth: int
+    chunks_processed: int
+    chunks_dropped: int
+    reconnect_attempts: int
+    last_error: str | None
 
 
 def _authorize(request: Request, provided_token: str | None) -> Settings:
@@ -84,6 +97,29 @@ async def get_ys7_status(request: Request) -> ApiResponse[SignalStatusData]:
             enabled=settings.ys7_signal_enabled,
             worker_running=worker.running,
             queue_depth=queue.depth,
+        ),
+        request_id=get_request_id(request),
+    )
+
+
+@router.get(
+    "/integrations/ys7/media/status",
+    response_model=ApiResponse[MediaStatusData],
+)
+async def get_ys7_media_status(request: Request) -> ApiResponse[MediaStatusData]:
+    settings: Settings = request.app.state.settings
+    worker: Ys7MediaStreamWorker = request.app.state.ys7_media_worker
+    return ApiResponse(
+        data=MediaStatusData(
+            enabled=settings.ys7_media_enabled,
+            running=worker.running,
+            connected=worker.connected,
+            session_id=worker.session_id,
+            queue_depth=worker.queue_depth,
+            chunks_processed=worker.chunks_processed,
+            chunks_dropped=worker.chunks_dropped,
+            reconnect_attempts=worker.reconnect_attempts,
+            last_error=worker.last_error,
         ),
         request_id=get_request_id(request),
     )

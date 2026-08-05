@@ -16,7 +16,7 @@
 - 已创建 PostgreSQL 数据库结构、SQLAlchemy Model 和 Alembic 首个迁移；
 - 防诈规则、轻量文本分类、证据融合和 S0-S5 状态机已迁入，已提供转写分析和活动会话查询接口；
 - 防诈风险事件已接 PostgreSQL Repository；萤石视觉事件、活动防诈会话和原始消息消费仍使用内存/文件实现；
-- SenseVoice、萤石正式消息通道、跌倒业务、统一事件查询与处置、WebSocket 尚未接入；
+- 已接入萤石标准直播地址取流、FFmpeg 连续音轨切块和 SenseVoiceSmall 转写；正式云信令协议、跌倒业务、统一事件查询与处置、WebSocket 尚未接入；
 - 尚未提供任何准确率、召回率或实时性结论。
 
 后续功能必须通过独立分支和 Pull Request 逐步实现，README 中的规划内容不得被表述为已完成功能。
@@ -76,6 +76,8 @@ FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接�
 | 测试 | Pytest、Android Unit Test | 后端已落地基础契约测试 |
 | 摄像头接入 | 萤石设备能力、AI服务和云信令 | 规划 |
 | 防诈推理 | 规则、字符 TF-IDF、S0-S5 状态机 | 已落地首版 |
+| 语音识别 | SenseVoiceSmall、FunASR | 已落地短 WAV 音频块 |
+| 媒体取流 | 萤石直播地址、FFmpeg | 已落地单设备音轨首版 |
 
 新增依赖或正式落地规划技术时，必须同步更新本文档和对应架构决策。
 
@@ -116,7 +118,7 @@ FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接�
 ```bash
 cp .env.example .env
 cd backend
-uv sync --dev
+uv sync --extra sensevoice --dev
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
@@ -189,6 +191,42 @@ curl -X POST http://127.0.0.1:8000/api/v1/fraud/analyze \
 ```
 
 同设备近 120 秒的萤石视觉事件会作为上下文参与状态机。活动会话当前保存在进程内存；非 S0 风险快照在数据库启用时幂等写入 `risk_events`。
+
+### SenseVoice 音频块
+
+安装可选模型运行时并启用功能：
+
+```bash
+cd backend
+uv sync --extra sensevoice --dev
+```
+
+```dotenv
+APP_SENSEVOICE_ENABLED=true
+APP_SENSEVOICE_MODEL=iic/SenseVoiceSmall
+APP_SENSEVOICE_DEVICE=cpu
+```
+
+随后通过 `POST /api/v1/fraud/audio/chunks` 上传不超过 15 秒的 WAV 块。后端不长期保存上传音频，SenseVoice 转写会带上由 `started_at` 换算的绝对时间并自动进入防诈状态机。完整字段见 [API 契约](docs/api/README.md)。
+
+### 萤石直播音轨
+
+拿到萤石参数后，在本地 `.env` 中配置：
+
+```dotenv
+APP_YS7_MEDIA_ENABLED=true
+APP_YS7_APP_KEY=your-app-key
+APP_YS7_APP_SECRET=your-app-secret
+APP_YS7_DEVICE_SERIAL=your-device-serial
+APP_YS7_CHANNEL_NO=1
+APP_YS7_LIVE_PROTOCOL=flv
+APP_YS7_LIVE_QUALITY=2
+APP_YS7_ELDER_ALONE=false
+```
+
+也可仅配置 `APP_YS7_ACCESS_TOKEN`，但固定 Token 过期后需要人工更新；配置 AppKey/AppSecret 时，后端会自动获取并缓存 Token。启动后通过 `GET /api/v1/integrations/ys7/media/status` 查看连接、重连、队列和已处理音频块状态。
+
+媒体 Worker 获取萤石直播地址后，通过 FFmpeg 只解码音轨为 16 kHz 单声道 PCM，每 5 秒直接调用 `FraudAudioService`。音频不落盘；当 SenseVoice 处理速度低于实时流时，有界队列会丢弃最旧块以避免告警延迟持续累积。
 
 ## 数据与隐私
 
