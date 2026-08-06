@@ -143,6 +143,41 @@ uv run pytest
 
 本地数据库连接通过根目录 `.env` 中的 `APP_DATABASE_URL` 配置。真实用户名和密码不得写入 README 或 `.env.example`。
 
+## Docker Compose 启动
+
+安装 Docker Desktop 后，从 GitHub 克隆仓库即可启动后端和 PostgreSQL：
+
+```bash
+git clone https://github.com/w0nderful-yzh/tzb-yingshi-app.git
+cd tzb-yingshi-app
+docker compose up --build -d
+```
+
+Compose 会等待 PostgreSQL 就绪，自动执行 Alembic 迁移，并幂等初始化 Android 联调需要的 Demo 用户和设备。无需预先安装 Python、uv 或 PostgreSQL。启动状态和日志可通过以下命令查看：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+接口文档位于 `http://127.0.0.1:8000/docs`。Android 模拟器仍需执行 `adb reverse tcp:8000 tcp:8000`；Android App 本身不在容器中构建。
+
+需要萤石、LLM 或其他可选能力时，先复制配置模板并填写自己的密钥，再重新启动：
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+SenseVoice 会显著增大镜像体积，因此默认不安装。需要实时语音识别时，在 `.env` 中设置 `INSTALL_SENSEVOICE=true`，同时按下文配置萤石媒体参数。Compose 内的数据库地址由 `TZB_DB_NAME`、`TZB_DB_USER` 和 `TZB_DB_PASSWORD` 生成，不使用宿主机的 `APP_DATABASE_URL`。
+
+停止服务不会删除数据；如需连同本地 Docker 数据卷一起重置，可执行：
+
+```bash
+docker compose down -v
+```
+
 ### 模拟萤石事件
 
 在本地 `.env` 中启用接收器并设置临时共享令牌：
