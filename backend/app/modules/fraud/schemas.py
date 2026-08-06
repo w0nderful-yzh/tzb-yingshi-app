@@ -48,6 +48,7 @@ class FraudAnalyzeRequest(BaseModel):
     occurred_at: datetime
     ended_at: datetime
     text: str = Field(min_length=1, max_length=2_000)
+    transcript_status: Literal["PARTIAL", "FINAL"] = "FINAL"
     elder_alone: bool = False
     language: str | None = Field(default=None, max_length=32)
     emotion: str | None = Field(default=None, max_length=32)
@@ -85,7 +86,7 @@ class FraudRiskSnapshot(BaseModel):
 
 
 class FraudAnalyzeData(BaseModel):
-    status: Literal["accepted", "duplicate"]
+    status: Literal["accepted", "updated", "duplicate"]
     speech_event: dict[str, Any]
     risk: FraudRiskSnapshot
 
@@ -98,6 +99,7 @@ class FraudAudioChunkRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=256)
     started_at: datetime
     elder_alone: bool = False
+    replaces_source_event_id: str | None = Field(default=None, max_length=256)
 
     @field_validator("started_at")
     @classmethod
@@ -112,6 +114,7 @@ class TranscriptSegment(BaseModel):
     occurred_at: datetime
     ended_at: datetime
     text: str
+    transcript_status: Literal["FINAL"] = "FINAL"
     language: str | None = None
     emotion: str | None = None
     audio_events: list[str] = Field(default_factory=list)

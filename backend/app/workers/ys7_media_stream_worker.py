@@ -2,25 +2,51 @@ import asyncio
 import io
 import logging
 import wave
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
-from uuid import uuid4
 
 from app.infrastructure.external.ys7.api_client import Ys7LiveAddressProvider
 from app.infrastructure.external.ys7.media_stream import PcmStreamSource
 from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.schemas import FraudAudioChunkRequest
+from app.modules.fraud.session_tracker import FraudSessionTracker
+from app.modules.fraud.voice_activity import FRAME_MS, VoiceActivitySegmenter, VoiceSegment
 
 logger = logging.getLogger(__name__)
+STREAMING_CHUNK_MS = 600
+STREAMING_CHUNK_BYTES = 16_000 * 2 * STREAMING_CHUNK_MS // 1_000
 
 
 @dataclass(frozen=True, slots=True)
 class _QueuedPcmChunk:
     chunk_id: str
+    session_id: str
     started_at: datetime
     pcm: bytes
+    replaces_source_event_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _QueuedStreamingPcm:
+    event_id: str
+    session_id: str
+    started_at: datetime
+    pcm: bytes
+    is_final: bool
+
+
+@dataclass(slots=True)
+class _OnlineUtterance:
+    event_id: str
+    session_id: str
+    started_at: datetime
+    buffer: bytearray
+
+
+_AnalysisJob = _QueuedPcmChunk | _QueuedStreamingPcm
 
 
 def pcm16_mono_to_wav(pcm: bytes, *, sample_rate: int = 16_000) -> bytes:
@@ -44,9 +70,11 @@ class Ys7MediaStreamWorker:
         channel_no: int,
         protocol: Literal["hls", "rtmp", "flv"],
         quality: int,
-        chunk_ms: int,
         queue_maxsize: int,
         elder_alone: bool,
+        vad_mode: int = 2,
+        voice_detector: Callable[[bytes], bool] | None = None,
+        session_tracker: FraudSessionTracker | None = None,
     ) -> None:
         self._address_provider = address_provider
         self._stream_source = stream_source
@@ -55,18 +83,22 @@ class Ys7MediaStreamWorker:
         self._channel_no = channel_no
         self._protocol = protocol
         self._quality = quality
-        self._chunk_ms = chunk_ms
         self._elder_alone = elder_alone
-        self._queue: asyncio.Queue[_QueuedPcmChunk] = asyncio.Queue(maxsize=queue_maxsize)
+        self._vad_mode = vad_mode
+        self._voice_detector = voice_detector
+        self._session_tracker = session_tracker or FraudSessionTracker()
+        self._queue: asyncio.Queue[_AnalysisJob] = asyncio.Queue(maxsize=queue_maxsize)
         self._stream_task: asyncio.Task[None] | None = None
         self._analysis_task: asyncio.Task[None] | None = None
-        self._session_id: str | None = None
         self.connected = False
         self.last_error: str | None = None
         self.reconnect_attempts = 0
         self.chunks_processed = 0
         self.chunks_dropped = 0
+        self.partials_processed = 0
+        self.partials_failed = 0
         self._chunk_sequence = 0
+        self._utterance_sequence = 0
 
     @property
     def running(self) -> bool:
@@ -74,7 +106,7 @@ class Ys7MediaStreamWorker:
 
     @property
     def session_id(self) -> str | None:
-        return self._session_id
+        return self._session_tracker.active_session_id
 
     @property
     def queue_depth(self) -> int:
@@ -83,7 +115,6 @@ class Ys7MediaStreamWorker:
     async def start(self) -> None:
         if self.running:
             return
-        self._session_id = f"ys7-live-{uuid4().hex[:16]}"
         self._stream_task = asyncio.create_task(
             self._run_stream(),
             name="ys7-media-stream",
@@ -108,7 +139,13 @@ class Ys7MediaStreamWorker:
     async def _run_stream(self) -> None:
         backoff_seconds = 1
         while True:
-            yielded_chunk = False
+            yielded_audio = False
+            connection_anchor: datetime | None = None
+            segmenter = VoiceActivitySegmenter(
+                vad_mode=self._vad_mode,
+                voice_detector=self._voice_detector,
+            )
+            online: _OnlineUtterance | None = None
             try:
                 if not self._device_serial:
                     raise RuntimeError("YS7 device serial is not configured")
@@ -118,37 +155,79 @@ class Ys7MediaStreamWorker:
                     protocol=self._protocol,
                     quality=self._quality,
                 )
-                self.connected = True
-                connection_anchor: datetime | None = None
-                connection_chunk_index = 0
                 async for pcm in self._stream_source.stream(
                     live_address,
-                    chunk_ms=self._chunk_ms,
+                    frame_ms=FRAME_MS,
                 ):
-                    yielded_chunk = True
+                    yielded_audio = True
+                    self.connected = True
                     self.last_error = None
                     self.reconnect_attempts = 0
                     backoff_seconds = 1
                     if connection_anchor is None:
-                        connection_anchor = datetime.now(UTC) - timedelta(
-                            milliseconds=self._chunk_ms
+                        connection_anchor = datetime.now(UTC) - timedelta(milliseconds=FRAME_MS)
+                    was_active = segmenter.speech_active
+                    segments = segmenter.consume(pcm)
+                    if self._fraud_audio_service.streaming_enabled:
+                        if not was_active and segmenter.speech_active:
+                            online = self._new_online_utterance(
+                                connection_anchor
+                                + timedelta(milliseconds=segmenter.active_start_offset_ms),
+                                initial_pcm=segmenter.active_pcm,
+                            )
+                        elif was_active and online is not None:
+                            online.buffer.extend(pcm)
+
+                    if segments:
+                        self._finalize_online(online)
+                        for segment in segments:
+                            self._publish_segment(
+                                segment,
+                                connection_anchor,
+                                session_id=online.session_id if online is not None else None,
+                                replaces_source_event_id=(
+                                    online.event_id if online is not None else None
+                                ),
+                            )
+                            online = (
+                                self._new_online_utterance(
+                                    connection_anchor
+                                    + timedelta(
+                                        milliseconds=segment.start_offset_ms
+                                        + len(segment.pcm) * 1_000 // (16_000 * 2)
+                                    )
+                                )
+                                if segment.continues and self._fraud_audio_service.streaming_enabled
+                                else None
+                            )
+                    elif online is not None:
+                        self._publish_online_chunks(online, is_final=False)
+                if connection_anchor is not None:
+                    self._finalize_online(online)
+                    for segment in segmenter.flush():
+                        self._publish_segment(
+                            segment,
+                            connection_anchor,
+                            session_id=online.session_id if online is not None else None,
+                            replaces_source_event_id=(
+                                online.event_id if online is not None else None
+                            ),
                         )
-                    started_at = connection_anchor + timedelta(
-                        milliseconds=connection_chunk_index * self._chunk_ms
-                    )
-                    connection_chunk_index += 1
-                    self._chunk_sequence += 1
-                    self._publish_latest(
-                        _QueuedPcmChunk(
-                            chunk_id=f"stream-{self._chunk_sequence:09d}",
-                            started_at=started_at,
-                            pcm=pcm,
-                        )
-                    )
                 raise RuntimeError("YS7 media stream ended")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if connection_anchor is not None:
+                    self._finalize_online(online)
+                    for segment in segmenter.flush():
+                        self._publish_segment(
+                            segment,
+                            connection_anchor,
+                            session_id=online.session_id if online is not None else None,
+                            replaces_source_event_id=(
+                                online.event_id if online is not None else None
+                            ),
+                        )
                 self.connected = False
                 self.reconnect_attempts += 1
                 self.last_error = str(exc)
@@ -156,13 +235,91 @@ class Ys7MediaStreamWorker:
                     "YS7 media stream disconnected; retrying",
                     extra={
                         "attempt": self.reconnect_attempts,
-                        "yielded_chunk": yielded_chunk,
+                        "yielded_audio": yielded_audio,
                     },
                 )
                 await asyncio.sleep(backoff_seconds)
                 backoff_seconds = min(backoff_seconds * 2, 60)
 
-    def _publish_latest(self, chunk: _QueuedPcmChunk) -> None:
+    def _new_online_utterance(
+        self,
+        started_at: datetime,
+        *,
+        initial_pcm: bytes = b"",
+    ) -> _OnlineUtterance:
+        self._utterance_sequence += 1
+        session_id = self._session_tracker.session_for_segment(
+            started_at=started_at,
+            ended_at=started_at,
+        )
+        return _OnlineUtterance(
+            event_id=f"stream-partial-{self._utterance_sequence:09d}",
+            session_id=session_id,
+            started_at=started_at,
+            buffer=bytearray(initial_pcm),
+        )
+
+    def _publish_online_chunks(
+        self,
+        utterance: _OnlineUtterance,
+        *,
+        is_final: bool,
+    ) -> None:
+        minimum_remaining = 1 if is_final else 0
+        while len(utterance.buffer) >= STREAMING_CHUNK_BYTES + minimum_remaining:
+            pcm = bytes(utterance.buffer[:STREAMING_CHUNK_BYTES])
+            del utterance.buffer[:STREAMING_CHUNK_BYTES]
+            self._publish_latest(
+                _QueuedStreamingPcm(
+                    event_id=utterance.event_id,
+                    session_id=utterance.session_id,
+                    started_at=utterance.started_at,
+                    pcm=pcm,
+                    is_final=False,
+                )
+            )
+        if is_final and utterance.buffer:
+            self._publish_latest(
+                _QueuedStreamingPcm(
+                    event_id=utterance.event_id,
+                    session_id=utterance.session_id,
+                    started_at=utterance.started_at,
+                    pcm=bytes(utterance.buffer),
+                    is_final=True,
+                )
+            )
+            utterance.buffer.clear()
+
+    def _finalize_online(self, utterance: _OnlineUtterance | None) -> None:
+        if utterance is not None:
+            self._publish_online_chunks(utterance, is_final=True)
+
+    def _publish_segment(
+        self,
+        segment: VoiceSegment,
+        anchor: datetime,
+        *,
+        session_id: str | None = None,
+        replaces_source_event_id: str | None = None,
+    ) -> None:
+        self._chunk_sequence += 1
+        started_at = anchor + timedelta(milliseconds=segment.start_offset_ms)
+        duration_ms = len(segment.pcm) * 1_000 // (16_000 * 2)
+        session_id = session_id or self._session_tracker.session_for_segment(
+            started_at=started_at,
+            ended_at=started_at + timedelta(milliseconds=duration_ms),
+        )
+        self._publish_latest(
+            _QueuedPcmChunk(
+                chunk_id=f"stream-{self._chunk_sequence:09d}",
+                session_id=session_id,
+                started_at=started_at,
+                pcm=segment.pcm,
+                replaces_source_event_id=replaces_source_event_id,
+            )
+        )
+
+    def _publish_latest(self, chunk: _AnalysisJob) -> None:
         if self._queue.full():
             with suppress(asyncio.QueueEmpty):
                 self._queue.get_nowait()
@@ -172,27 +329,47 @@ class Ys7MediaStreamWorker:
 
     async def _run_analysis(self) -> None:
         while True:
-            chunk = await self._queue.get()
+            job = await self._queue.get()
             try:
-                if self._device_serial is None or self._session_id is None:
+                if self._device_serial is None:
+                    continue
+                if isinstance(job, _QueuedStreamingPcm):
+                    result = await self._fraud_audio_service.analyze_streaming_pcm(
+                        session_id=job.session_id,
+                        source_event_id=job.event_id,
+                        device_id=self._device_serial,
+                        started_at=job.started_at,
+                        elder_alone=self._elder_alone,
+                        pcm=job.pcm,
+                        is_final=job.is_final,
+                    )
+                    if result is not None:
+                        self.partials_processed += 1
                     continue
                 await self._fraud_audio_service.analyze_chunk(
                     FraudAudioChunkRequest(
-                        session_id=self._session_id,
-                        chunk_id=chunk.chunk_id,
+                        session_id=job.session_id,
+                        chunk_id=job.chunk_id,
                         device_id=self._device_serial,
-                        started_at=chunk.started_at,
+                        started_at=job.started_at,
                         elder_alone=self._elder_alone,
+                        replaces_source_event_id=job.replaces_source_event_id,
                     ),
-                    pcm16_mono_to_wav(chunk.pcm),
+                    pcm16_mono_to_wav(job.pcm),
                 )
                 self.chunks_processed += 1
             except asyncio.CancelledError:
                 raise
             except Exception:
+                if isinstance(job, _QueuedStreamingPcm):
+                    self.partials_failed += 1
                 logger.exception(
                     "Failed to analyze YS7 audio chunk",
-                    extra={"chunk_id": chunk.chunk_id},
+                    extra={
+                        "chunk_id": (
+                            job.event_id if isinstance(job, _QueuedStreamingPcm) else job.chunk_id
+                        )
+                    },
                 )
             finally:
                 self._queue.task_done()

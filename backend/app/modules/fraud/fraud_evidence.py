@@ -56,6 +56,7 @@ def _make_evidence(
         "reason": reason,
         "confidence": confidence,
         "matched_terms": event.get("matched_terms", {}),
+        "transcript_status": event.get("transcript_status", "FINAL"),
     }
 
 

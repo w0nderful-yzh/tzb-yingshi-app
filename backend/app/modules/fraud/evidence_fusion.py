@@ -38,6 +38,7 @@ def _classifier_evidence(event: dict[str, Any], kind: str, confidence: float) ->
         "classifier_confidence": round(confidence, 4),
         "detectors": ["text_classifier"],
         "fusion_method": "classifier_only",
+        "transcript_status": event.get("transcript_status", "FINAL"),
     }
 
 

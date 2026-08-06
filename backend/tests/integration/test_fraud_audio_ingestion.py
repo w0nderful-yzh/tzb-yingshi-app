@@ -46,6 +46,28 @@ class UnavailableSpeechRecognizer:
         raise SpeechRecognitionUnavailableError("SenseVoice dependencies are not installed")
 
 
+class OverlappingSpeechRecognizer:
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def transcribe_wav(
+        self,
+        audio: bytes,
+        *,
+        duration_ms: int,
+    ) -> list[RelativeTranscriptSegment]:
+        del audio, duration_ms
+        self.call_count += 1
+        start_ms, end_ms = (9_000, 9_800) if self.call_count == 1 else (0, 800)
+        return [
+            RelativeTranscriptSegment(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                text="把短信验证码告诉我",
+            )
+        ]
+
+
 def _wav_bytes(*, duration_ms: int = 3_000) -> bytes:
     target = io.BytesIO()
     sample_rate = 16_000
@@ -116,6 +138,44 @@ def test_duplicate_chunk_does_not_run_sensevoice_twice(
     assert second.status_code == 200
     assert second.json()["data"]["status"] == "duplicate"
     assert recognizer.call_count == 1
+
+
+def test_overlapping_audio_segments_do_not_duplicate_transcript_evidence() -> None:
+    recognizer = OverlappingSpeechRecognizer()
+    settings = Settings(
+        environment="test",
+        sensevoice_enabled=True,
+        database_enabled=False,
+        _env_file=None,
+    )
+    app = create_app(settings, speech_recognizer=recognizer)
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/v1/fraud/audio/chunks",
+            data={
+                "session_id": "overlap-session",
+                "chunk_id": "overlap-001",
+                "device_id": "camera-audio",
+                "started_at": "2026-08-04T12:00:00+08:00",
+            },
+            files={"audio": ("chunk.wav", _wav_bytes(duration_ms=10_000), "audio/wav")},
+        )
+        second = client.post(
+            "/api/v1/fraud/audio/chunks",
+            data={
+                "session_id": "overlap-session",
+                "chunk_id": "overlap-002",
+                "device_id": "camera-audio",
+                "started_at": "2026-08-04T12:00:09+08:00",
+            },
+            files={"audio": ("chunk.wav", _wav_bytes(), "audio/wav")},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(first.json()["data"]["transcript_segments"]) == 1
+    assert second.json()["data"]["transcript_segments"] == []
+    assert recognizer.call_count == 2
 
 
 def test_invalid_wav_is_rejected_before_recognition(

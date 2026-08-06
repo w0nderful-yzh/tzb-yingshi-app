@@ -99,9 +99,10 @@ phone_call | people_count | person_detected
 
 - `running`：后台任务是否存活；
 - `connected`：当前是否已连接直播流；
-- `session_id`：本次进程中的防诈直播会话；
-- `queue_depth`：等待 SenseVoice 的音频块数量；
-- `chunks_processed/chunks_dropped`：成功分析和为保持实时性而丢弃的块数；
+- `session_id`：当前独立防诈会话；30 秒静音或 10 分钟上限后会切换；
+- `queue_depth`：等待流式或终句识别的音频任务数量；
+- `streaming_enabled/partials_processed/partials_failed`：Paraformer 流式识别开关和处理统计；
+- `chunks_processed/chunks_dropped`：成功完成 SenseVoice 终句分析和为保持实时性而丢弃的任务数；
 - `reconnect_attempts/last_error`：当前重连次数和不含凭证的错误摘要。
 
 ### `GET /api/v1/fraud/visual-events`
@@ -110,7 +111,7 @@ phone_call | people_count | person_detected
 
 ### `POST /api/v1/fraud/analyze`
 
-提交一条已完成的语音转写片段。`occurred_at` 和 `ended_at` 必须携带时区；同一设备、会话下重复的 `source_event_id` 返回 `status=duplicate`，不会重复加入证据链。
+提交一条语音转写片段。`occurred_at` 和 `ended_at` 必须携带时区；`transcript_status` 默认为 `FINAL`。相同 `source_event_id` 的 `PARTIAL` 可被后续 `PARTIAL` 或 `FINAL` 原位更新并返回 `status=updated`；已经是 `FINAL` 后再次提交返回 `status=duplicate`。
 
 ```json
 {
@@ -120,11 +121,12 @@ phone_call | people_count | person_detected
   "occurred_at": "2026-08-04T12:00:05+08:00",
   "ended_at": "2026-08-04T12:00:08+08:00",
   "text": "我是银行客服，把短信验证码告诉我",
+  "transcript_status": "FINAL",
   "elder_alone": true
 }
 ```
 
-响应中的 `risk` 包含 `state`、`risk_level`、`decision`、`transition_reason`、`next_stage_conditions`、`evidence_chain` 和 `state_history`。服务会按事件发生时间重放当前会话近 120 秒的语音证据，并合并同设备的萤石视觉事件。非 S0 结果在数据库启用时写入 `risk_events`。
+响应中的 `risk` 包含 `state`、`risk_level`、`decision`、`transition_reason`、`next_stage_conditions`、`evidence_chain` 和 `state_history`。`PARTIAL` 结果最多到 S2，不触发风险事件落库和 LLM；`FINAL` 才可进入 S3-S5。服务会按事件发生时间重放当前会话近 120 秒的语音证据，并合并同设备的萤石视觉上下文。数据库启用时，会话写入 `fraud_sessions`，非 S0 终句结果写入 `risk_events`。
 
 ### `POST /api/v1/fraud/audio/chunks`
 
@@ -153,7 +155,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/fraud/audio/chunks \
 
 ### `GET /api/v1/fraud/sessions/{session_id}`
 
-通过必填查询参数 `device_id` 获取当前进程内活动会话的最新风险快照。该查询会重新读取同设备视觉事件，因此后到达的萤石事件可以在下一次查询或分析时参与判断。会话不存在返回 HTTP 404。
+通过必填查询参数 `device_id` 获取会话的最新风险快照。内存未命中时会从 PostgreSQL `fraud_sessions` 恢复；查询同时重新读取同设备视觉事件，因此后到达的萤石事件可以在下一次查询或分析时参与判断。会话不存在返回 HTTP 404。
 
 ### `GET /api/v1/fraud/llm/status`
 
