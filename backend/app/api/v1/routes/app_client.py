@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
@@ -17,6 +18,8 @@ from app.modules.app_client.schemas import (
     EventDetailData,
     EventListData,
     EventsStatsData,
+    HistoryPlaybackData,
+    InterventionReminderRequest,
     LiveSdkSessionData,
     LiveUrlData,
     SafetyStatus,
@@ -35,6 +38,8 @@ IdempotencyHeader = Annotated[
     str,
     Header(alias="Idempotency-Key", min_length=8, max_length=128),
 ]
+HistoryAtQuery = Annotated[datetime | None, Query()]
+HistoryDurationQuery = Annotated[int, Query(ge=10, le=300)]
 
 
 def _service(request: Request, session: AsyncSession) -> AppClientService:
@@ -175,6 +180,26 @@ async def patch_event_status(
     return ApiResponse(data=result, request_id=get_request_id(request))
 
 
+@router.post(
+    "/events/{event_id}/intervention-reminder",
+    response_model=ApiResponse[EmptyData],
+)
+async def send_intervention_reminder(
+    request: Request,
+    event_id: str,
+    payload: InterventionReminderRequest,
+    session: DatabaseSession,
+    idempotency_key: IdempotencyHeader,
+    role: RoleHeader = "family",
+) -> ApiResponse[EmptyData]:
+    del payload, idempotency_key
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    await service.get_event(identity, event_id)
+    # TODO(YS7): 接入设备语音播报或家属外呼，并记录实际送达状态。
+    raise HTTPException(status_code=501, detail="intervention reminder is not implemented")
+
+
 @router.get("/devices", response_model=ApiResponse[DeviceListData])
 async def list_devices(
     request: Request,
@@ -230,6 +255,30 @@ async def get_live_sdk_session(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     response.headers["Cache-Control"] = "no-store"
     return ApiResponse(data=data, request_id=get_request_id(request))
+
+
+@router.get(
+    "/devices/{device_id}/history-playback",
+    response_model=ApiResponse[HistoryPlaybackData],
+)
+async def get_history_playback(
+    request: Request,
+    device_id: str,
+    session: DatabaseSession,
+    role: RoleHeader = "family",
+    elder_id: str | None = Query(default=None),
+    at: HistoryAtQuery = None,
+    duration_seconds: HistoryDurationQuery = 30,
+) -> ApiResponse[HistoryPlaybackData]:
+    del at, duration_seconds
+    service = _service(request, session)
+    identity = await service.resolve_identity(role)
+    elder = await service.resolve_elder(identity, elder_id)
+    devices = await service.list_devices(elder)
+    if not any(device.device_id == device_id for device in devices.devices):
+        raise HTTPException(status_code=404, detail="device not found")
+    # TODO(YS7): 生成事件时间点附近的短时历史回放地址。
+    raise HTTPException(status_code=501, detail="history playback is not implemented")
 
 
 @router.get("/contacts", response_model=ApiResponse[ContactsData])

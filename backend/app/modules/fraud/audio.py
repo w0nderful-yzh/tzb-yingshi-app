@@ -35,6 +35,14 @@ class SpeechRecognizer(Protocol):
     ) -> list[RelativeTranscriptSegment]: ...
 
 
+class StreamingRecognitionSession(Protocol):
+    def transcribe_pcm(self, pcm: bytes, *, is_final: bool) -> str: ...
+
+
+class StreamingSpeechRecognizer(Protocol):
+    def create_session(self) -> StreamingRecognitionSession: ...
+
+
 def validate_wav_chunk(audio: bytes, *, max_duration_ms: int = 15_000) -> int:
     try:
         with wave.open(io.BytesIO(audio), "rb") as source:

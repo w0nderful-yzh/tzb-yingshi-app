@@ -19,6 +19,7 @@ def test_initial_schema_contains_required_tables() -> None:
         "ys7_signal_inbox",
         "visual_events",
         "model_runs",
+        "fraud_sessions",
         "risk_events",
         "event_actions",
         "event_deliveries",
@@ -58,6 +59,21 @@ def test_idempotency_and_risk_constraints_are_declared() -> None:
     assert "ck_risk_events_risk_level_values" in risk_checks
     assert "ck_risk_events_alert_level_values" in risk_checks
     assert isinstance(risk_events.c.evidence.type, JSONB)
+
+
+def test_fraud_sessions_persist_replayable_active_state() -> None:
+    sessions = Base.metadata.tables["fraud_sessions"]
+    unique_columns = {
+        tuple(constraint.columns.keys())
+        for constraint in sessions.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+    assert ("external_device_id", "session_id") in unique_columns
+    assert {"speech_events", "llm_evidence", "started_at", "last_activity_at"} <= set(
+        sessions.c.keys()
+    )
+    assert isinstance(sessions.c.speech_events.type, JSONB)
 
 
 def test_app_phase_one_tables_support_authorization_and_delivery() -> None:

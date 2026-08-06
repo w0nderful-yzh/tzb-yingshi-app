@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from app.modules.fraud.llm import FraudLlmReviewQueue, FraudLlmReviewRequest
-from app.modules.fraud.ports import FraudRiskEventSink, FraudRiskEventWrite
+from app.modules.fraud.ports import (
+    FraudRiskEventSink,
+    FraudRiskEventWrite,
+    FraudSessionRecord,
+    FraudSessionStore,
+)
 from app.modules.fraud.risk_engine import (
     RISK_MODEL_NAME,
     RISK_MODEL_VERSION,
@@ -27,6 +32,10 @@ class _FraudSession:
     session_id: str
     device_id: str
     elder_alone: bool = False
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_activity_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    status: str = "ACTIVE"
+    ended_at: datetime | None = None
     speech_events: dict[str, dict[str, Any]] = field(default_factory=dict)
     llm_evidence: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_llm_review_id: str | None = None
@@ -46,6 +55,7 @@ class FraudSessionService:
         llm_vision_enabled: bool = False,
         llm_max_images: int = 4,
         memory_ms: int = 120_000,
+        session_store: FraudSessionStore | None = None,
     ) -> None:
         self._visual_event_store = visual_event_store
         self._risk_event_sink = risk_event_sink
@@ -55,23 +65,36 @@ class FraudSessionService:
         self._llm_vision_enabled = llm_vision_enabled
         self._llm_max_images = llm_max_images
         self._memory_ms = memory_ms
+        self._session_store = session_store
         self._sessions: dict[tuple[str, str], _FraudSession] = {}
         self._lock = asyncio.Lock()
 
     async def analyze(self, payload: FraudAnalyzeRequest) -> FraudAnalyzeData:
         key = (payload.device_id, payload.session_id)
         async with self._lock:
-            session = self._sessions.setdefault(
-                key,
-                _FraudSession(
+            session = self._sessions.get(key)
+            if session is None:
+                session = await self._restore(payload.device_id, payload.session_id)
+            if session is None:
+                session = _FraudSession(
                     session_id=payload.session_id,
                     device_id=payload.device_id,
                     elder_alone=payload.elder_alone,
-                ),
-            )
+                    started_at=payload.occurred_at,
+                    last_activity_at=payload.ended_at,
+                )
+                await self._close_other_sessions(
+                    device_id=payload.device_id,
+                    active_session_id=payload.session_id,
+                    ended_at=payload.occurred_at,
+                )
+            self._sessions[key] = session
             session.elder_alone = session.elder_alone or payload.elder_alone
+            session.started_at = min(session.started_at, payload.occurred_at)
+            session.last_activity_at = max(session.last_activity_at, payload.ended_at)
             existing = session.speech_events.get(payload.source_event_id)
-            if existing is None:
+            should_update = existing is not None and existing.get("transcript_status") == "PARTIAL"
+            if existing is None or should_update:
                 speech_events = await asyncio.to_thread(
                     build_speech_events,
                     [
@@ -82,22 +105,27 @@ class FraudSessionService:
                             "language": payload.language,
                             "emotion": payload.emotion,
                             "audio_events": payload.audio_events,
+                            "transcript_status": payload.transcript_status,
                         }
                     ],
-                    event_id_offset=len(session.speech_events),
+                    event_id_offset=len(session.speech_events) - (1 if should_update else 0),
                 )
                 speech_event = speech_events[0]
                 speech_event["source_event_id"] = payload.source_event_id
                 session.speech_events[payload.source_event_id] = speech_event
-                status: Literal["accepted", "duplicate"] = "accepted"
+                status: Literal["accepted", "updated", "duplicate"] = (
+                    "updated" if should_update else "accepted"
+                )
             else:
                 speech_event = existing
                 status = "duplicate"
 
             risk = await self._snapshot(session)
-            if risk.state != "S0_NORMAL":
+            if payload.transcript_status == "FINAL" and risk.state != "S0_NORMAL":
                 await self._persist(risk)
-            await self._submit_llm_review(session, risk)
+            if payload.transcript_status == "FINAL":
+                await self._submit_llm_review(session, risk)
+            await self._persist_session(session)
             return FraudAnalyzeData(status=status, speech_event=speech_event, risk=risk)
 
     async def get_session(
@@ -109,7 +137,10 @@ class FraudSessionService:
         async with self._lock:
             session = self._sessions.get((device_id, session_id))
             if session is None:
+                session = await self._restore(device_id, session_id)
+            if session is None:
                 return None
+            self._sessions[(device_id, session_id)] = session
             return await self._snapshot(session)
 
     async def apply_llm_evidence(
@@ -122,13 +153,78 @@ class FraudSessionService:
         async with self._lock:
             session = self._sessions.get((device_id, session_id))
             if session is None:
+                session = await self._restore(device_id, session_id)
+            if session is None:
                 return None
+            self._sessions[(device_id, session_id)] = session
             for item in evidence:
                 session.llm_evidence[str(item["evidence_id"])] = dict(item)
             risk = await self._snapshot(session)
             if risk.state != "S0_NORMAL":
                 await self._persist(risk)
+            await self._persist_session(session)
             return risk
+
+    async def _restore(self, device_id: str, session_id: str) -> _FraudSession | None:
+        if self._session_store is None:
+            return None
+        record = await self._session_store.load(device_id=device_id, session_id=session_id)
+        if record is None:
+            return None
+        return _FraudSession(
+            session_id=record.session_id,
+            device_id=record.device_id,
+            elder_alone=record.elder_alone,
+            started_at=record.started_at,
+            last_activity_at=record.last_activity_at,
+            status=record.status,
+            ended_at=record.ended_at,
+            speech_events={key: dict(value) for key, value in record.speech_events.items()},
+            llm_evidence={key: dict(value) for key, value in record.llm_evidence.items()},
+            last_llm_review_id=record.last_llm_review_id,
+        )
+
+    async def _persist_session(self, session: _FraudSession) -> None:
+        if self._session_store is None:
+            return
+        await self._session_store.upsert(
+            FraudSessionRecord(
+                session_id=session.session_id,
+                device_id=session.device_id,
+                elder_alone=session.elder_alone,
+                status=session.status,
+                started_at=session.started_at,
+                last_activity_at=session.last_activity_at,
+                ended_at=session.ended_at,
+                speech_events={key: dict(value) for key, value in session.speech_events.items()},
+                llm_evidence={key: dict(value) for key, value in session.llm_evidence.items()},
+                last_llm_review_id=session.last_llm_review_id,
+            )
+        )
+
+    async def _close_other_sessions(
+        self,
+        *,
+        device_id: str,
+        active_session_id: str,
+        ended_at: datetime,
+    ) -> None:
+        for (stored_device_id, stored_session_id), session in self._sessions.items():
+            if (
+                stored_device_id != device_id
+                or stored_session_id == active_session_id
+                or session.status != "ACTIVE"
+            ):
+                continue
+            session.status = "CLOSED"
+            session.ended_at = max(session.started_at, ended_at)
+            await self._persist_session(session)
+        if self._session_store is not None:
+            await self._session_store.close_other_active(
+                device_id=device_id,
+                active_session_id=active_session_id,
+                ended_at=ended_at,
+            )
 
     async def _snapshot(self, session: _FraudSession) -> FraudRiskSnapshot:
         visual_events = await self._visual_event_store.list(

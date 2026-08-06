@@ -31,3 +31,16 @@ def test_fraud_llm_api_key_is_redacted() -> None:
     )
 
     assert "private-llm-key" not in repr(settings)
+
+
+def test_streaming_asr_hotword_corrections_are_parsed_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "APP_STREAMING_ASR_HOTWORD_CORRECTIONS",
+        '{"安全帐户":"安全账户"}',
+    )
+
+    settings = Settings(environment="test", _env_file=None)
+
+    assert settings.streaming_asr_hotword_corrections == {"安全帐户": "安全账户"}

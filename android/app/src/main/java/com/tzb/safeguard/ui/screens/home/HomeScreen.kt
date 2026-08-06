@@ -1,240 +1,333 @@
 package com.tzb.safeguard.ui.screens.home
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Elderly
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.WatchLater
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.tzb.safeguard.ServiceLocator
-import com.tzb.safeguard.data.model.Device
-import com.tzb.safeguard.ui.components.*
+import com.tzb.safeguard.data.model.RiskEvent
+import com.tzb.safeguard.ui.components.AppBottomBar
+import com.tzb.safeguard.ui.components.AppTabs
+import com.tzb.safeguard.ui.components.EvidenceImage
+import com.tzb.safeguard.ui.components.StateBox
+import com.tzb.safeguard.ui.components.UiState
+import com.tzb.safeguard.ui.components.formatTime
+import com.tzb.safeguard.ui.components.levelBgColor
+import com.tzb.safeguard.ui.components.levelColor
 import com.tzb.safeguard.ui.navigation.Routes
 import com.tzb.safeguard.ui.navigation.appViewModel
-import com.tzb.safeguard.ui.theme.*
+import com.tzb.safeguard.ui.screens.monitor.LiveVideoPlayer
+import com.tzb.safeguard.ui.theme.LineColor
+import com.tzb.safeguard.ui.theme.Primary
+import com.tzb.safeguard.ui.theme.SafeGreen
+import com.tzb.safeguard.ui.theme.TextMain
+import com.tzb.safeguard.ui.theme.TextSecondary
 
-/**
- * 首页 · 安全状态总览（老人端）。
- * 对应 prototype/pages/home.html：
- * 状态大卡 / SOS 大按钮 / 今日守护 / 设备状态 / 最近提醒 / 语音助手入口。
- */
 @Composable
 fun HomeScreen(
     navController: NavHostController,
-    vm: HomeViewModel = appViewModel { HomeViewModel(ServiceLocator.repository) }
+    vm: HomeViewModel = appViewModel { HomeViewModel(ServiceLocator.repository) },
 ) {
     val state by vm.state.collectAsState()
-    val sosState by vm.sosState.collectAsState()
-    var showSosConfirm by remember { mutableStateOf(false) }
-
+    val notice by vm.notice.collectAsState()
     Scaffold(
+        modifier = Modifier.statusBarsPadding(),
         bottomBar = {
-            AppBottomBar(ElderTabs, Routes.HOME) { route ->
+            AppBottomBar(AppTabs, Routes.HOME) { route ->
                 navController.navigate(route) { launchSingleTop = true }
             }
         },
-        containerColor = BgPage
+        containerColor = Color.White,
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            StateBox(state = state, onRetry = vm::load) { data ->
-                LazyColumn(
-                    contentPadding = PaddingValues(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    item {
-                        PageHeaderBlock(
-                            title = "您好，${data.user.name.ifBlank { "家人" }}",
-                            subtitle = "家中安全守护中"
-                        )
-                    }
-
-                    // 安全状态大卡：随 overall 变色
-                    item { SafetyStatusCard(data.status.overall, data.status.overall_label,
-                        "${data.status.devices_online} 台设备在线 · 待处理 ${data.status.active_event_count} 条") }
-
-                    // SOS：先弹确认，防止误触
-                    item {
-                        BigActionButton(
-                            text = if (sosState is SosState.Sending) "正在通知家人…" else "紧急求助",
-                            icon = Icons.Filled.Sos,
-                            containerColor = WarnRed,
-                            onClick = { if (sosState !is SosState.Sending) showSosConfirm = true }
-                        )
-                        Text(
-                            "点击后将同时呼叫子女并发送当前状态",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-
-                    // 今日守护
-                    item {
-                        AppCard {
-                            Text("今日守护", style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                StatBox("${data.status.today.event_count}", "风险事件",
-                                    if (data.status.today.event_count > 0) WarnOrange else SafeGreen, Modifier.weight(1f))
-                                StatBox("${data.status.today.active_hours}h", "活动时长", Primary, Modifier.weight(1f))
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                StatBox("${data.status.today.call_screened}", "来电已识别", Primary, Modifier.weight(1f))
-                                StatBox("${data.status.devices_online}/${data.status.devices_total}", "设备在线", SafeGreen, Modifier.weight(1f))
-                            }
-                        }
-                    }
-
-                    // 设备状态
-                    item {
-                        AppCard {
-                            Text("设备状态", style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.height(6.dp))
-                            data.devices.forEach { DeviceRow(it) }
-                        }
-                    }
-
-                    // 最近提醒
-                    item {
-                        AppCard {
-                            Text("最近提醒", style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.height(10.dp))
-                            if (data.recentEvents.isEmpty()) {
-                                EmptyBox("暂无未处理的消息")
-                            } else {
-                                data.recentEvents.forEach { event ->
-                                    AlertCard(event) {
-                                        navController.navigate(Routes.alertDetail(event.event_id))
-                                    }
-                                    Spacer(Modifier.height(10.dp))
-                                }
-                            }
-                            BigActionButton(text = "查看全部消息", outlined = true) {
-                                navController.navigate(Routes.ALERTS) { launchSingleTop = true }
-                            }
-                        }
-                    }
-
-                    // 语音助手入口（适老语音辅助）
-                    item {
-                        AppCard {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.Mic, contentDescription = null, tint = Primary, modifier = Modifier.size(36.dp))
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text("语音助手已开启", style = MaterialTheme.typography.titleMedium)
-                                    Text("说“小安小安”可语音播报状态、读消息", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
+        StateBox(state, vm::load, Modifier.padding(padding)) { data ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("家人看护", style = MaterialTheme.typography.headlineLarge)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { navController.navigate(Routes.PROFILE) }) {
+                            Icon(Icons.Filled.Add, contentDescription = "添加家人", modifier = Modifier.size(30.dp))
                         }
                     }
                 }
+                item {
+                    FamilyLiveCard(data = data, onRetry = vm::retryLive)
+                }
+                item {
+                    QuickActions(
+                        onLive = { navController.navigate(Routes.MONITOR) },
+                        onHistory = vm::requestHistoryPlayback,
+                        onIntervene = { navController.navigate(Routes.ALERTS) },
+                        onSettings = { navController.navigate(Routes.PROFILE) },
+                    )
+                }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("今日预测", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { navController.navigate(Routes.ALERTS) }) {
+                            Text("全部", color = TextSecondary)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+                if (data.recentWarnings.isEmpty()) {
+                    item {
+                        EmptyPredictionCard()
+                    }
+                } else {
+                    items(data.recentWarnings, key = { it.event_id }) { event ->
+                        PredictionListItem(event) {
+                            navController.navigate(Routes.alertDetail(event.event_id))
+                        }
+                    }
+                }
+                item { ModulePlaceholder("跌倒风险预测", "待算法模块接入", Icons.Filled.WatchLater) }
+                item { ModulePlaceholder("心理健康趋势", "待算法模块接入", Icons.Filled.Psychology) }
+                item { Spacer(Modifier.height(4.dp)) }
             }
         }
     }
 
-    // SOS 确认弹窗
-    if (showSosConfirm) {
+    notice?.let {
         AlertDialog(
-            onDismissRequest = { showSosConfirm = false },
-            title = { Text("发起紧急求助？") },
-            text = { Text("将立即通知您的 2 位紧急联系人。如果是误触，请点取消。") },
-            confirmButton = {
-                TextButton(onClick = { showSosConfirm = false; vm.sendSos() }) {
-                    Text("确认求助", color = WarnRed, fontWeight = FontWeight.Bold)
+            onDismissRequest = vm::clearNotice,
+            title = { Text("功能提示") },
+            text = { Text(it) },
+            confirmButton = { TextButton(onClick = vm::clearNotice) { Text("知道了") } },
+        )
+    }
+}
+
+@Composable
+private fun FamilyLiveCard(data: HomeData, onRetry: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, LineColor),
+        shadowElevation = 2.dp,
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = Color(0xFFFFE8D8)) {
+                    Icon(
+                        Icons.Filled.Elderly,
+                        contentDescription = null,
+                        tint = Color(0xFF6B4C3B),
+                        modifier = Modifier.padding(8.dp).size(25.dp),
+                    )
                 }
-            },
-            dismissButton = { TextButton(onClick = { showSosConfirm = false }) { Text("取消") } }
-        )
-    }
-
-    // SOS 结果反馈
-    when (val s = sosState) {
-        is SosState.Sent -> AlertDialog(
-            onDismissRequest = vm::resetSos,
-            title = { Text("求助已发出") },
-            text = { Text("已通知 ${s.notifiedContacts} 位紧急联系人，请保持电话畅通。") },
-            confirmButton = { TextButton(onClick = vm::resetSos) { Text("知道了") } }
-        )
-        is SosState.Failed -> AlertDialog(
-            onDismissRequest = vm::resetSos,
-            title = { Text("求助发送失败") },
-            text = { Text(s.message + "\n请直接拨打家人电话。") },
-            confirmButton = { TextButton(onClick = { vm.resetSos(); vm.sendSos() }) { Text("重试") } },
-            dismissButton = { TextButton(onClick = vm::resetSos) { Text("关闭") } }
-        )
-        else -> Unit
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(data.elder?.name ?: "被守护家人", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE7F8EE)) {
+                            Text(
+                                if (data.selectedDevice?.online == true) "● 在线" else "● 离线",
+                                color = if (data.selectedDevice?.online == true) SafeGreen else TextSecondary,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        data.selectedDevice?.let { displayRoom(it.room.ifBlank { it.name }) }
+                            ?: "尚未绑定设备",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            LiveVideoPlayer(
+                liveSession = data.liveSession,
+                deviceName = data.selectedDevice?.name ?: "摄像头",
+                streamLoading = data.streamLoading,
+                streamError = data.streamError,
+                onRetry = onRetry,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1.65f),
+            )
+        }
     }
 }
 
 @Composable
-private fun PageHeaderBlock(title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-        Text(title, style = MaterialTheme.typography.headlineLarge)
-        Text(subtitle, style = MaterialTheme.typography.bodySmall)
+private fun QuickActions(
+    onLive: () -> Unit,
+    onHistory: () -> Unit,
+    onIntervene: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, LineColor),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 12.dp)) {
+            QuickAction(Icons.Filled.Videocam, "查看直播", Color(0xFFE1F8EC), Color(0xFF16A05D), Modifier.weight(1f), onLive)
+            QuickAction(Icons.Filled.History, "历史回看", Color(0xFFE8F0FF), Primary, Modifier.weight(1f), onHistory)
+            QuickAction(Icons.Filled.NotificationsActive, "介入提醒", Color(0xFFF0E9FF), Color(0xFF7653D6), Modifier.weight(1f), onIntervene)
+            QuickAction(Icons.Filled.Settings, "更多设置", Color(0xFFF0F2F5), Color(0xFF667085), Modifier.weight(1f), onSettings)
+        }
     }
 }
 
-/** 安全状态大卡：safe/attention/danger 三档配色 */
 @Composable
-private fun SafetyStatusCard(overall: String, label: String, sub: String) {
-    val (bg, fg, icon, badge) = when (overall) {
-        "danger" -> Quad(WarnRedBg, WarnRed, Icons.Filled.Error, "当前风险：紧急")
-        "attention" -> Quad(WarnOrangeBg, WarnOrange, Icons.Filled.Warning, "当前风险：需关注")
-        else -> Quad(SafeGreenBg, SafeGreen, Icons.Filled.CheckCircle, "当前风险：安全")
+private fun QuickAction(
+    icon: ImageVector,
+    label: String,
+    iconBg: Color,
+    iconColor: Color,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(shape = RoundedCornerShape(12.dp), color = iconBg) {
+            Icon(icon, contentDescription = label, tint = iconColor, modifier = Modifier.padding(9.dp).size(22.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.sp, color = TextMain, fontWeight = FontWeight.Medium)
     }
-    AppCard(containerColor = bg) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.width(14.dp))
+}
+
+@Composable
+private fun PredictionListItem(event: RiskEvent, onClick: () -> Unit) {
+    val frame = event.evidence_frames.lastOrNull()
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = levelBgColor(event.level).copy(alpha = 0.46f),
+        border = BorderStroke(1.dp, LineColor.copy(alpha = 0.65f)),
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = CircleShape, color = levelColor(event.level)) {
+                Icon(
+                    Icons.Filled.Shield,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.padding(7.dp).size(18.dp),
+                )
+            }
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    event.fraud_state_label ?: "诈骗风险趋势",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(formatTime(event.occurred_at), color = TextSecondary, fontSize = 12.sp)
+                Text(event.location.ifBlank { "持续分析中" }, color = TextSecondary, fontSize = 12.sp)
+            }
+            EvidenceImage(
+                imageUrl = frame?.image_url ?: event.evidence_image_url,
+                timestamp = formatTime(frame?.captured_at ?: event.occurred_at).removePrefix("今天 "),
+                modifier = Modifier.width(116.dp).height(67.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyPredictionCard() {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFF4F8FF),
+        border = BorderStroke(1.dp, LineColor),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Shield, contentDescription = null, tint = Primary)
+            Spacer(Modifier.width(10.dp))
             Column {
-                Text(label, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = fg)
-                Text(sub, style = MaterialTheme.typography.bodySmall)
+                Text("诈骗风险持续预测中", fontWeight = FontWeight.Bold)
+                Text("暂未发现需要家属提前介入的风险趋势", color = TextSecondary, fontSize = 13.sp)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = androidx.compose.ui.graphics.Color.White) {
-            Text(badge, color = fg, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
-        }
     }
 }
 
-private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
-
 @Composable
-private fun StatBox(number: String, label: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+private fun ModulePlaceholder(title: String, status: String, icon: ImageVector) {
     Surface(
-        modifier = modifier,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        color = BgPage
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFFAFAFB),
+        border = BorderStroke(1.dp, LineColor),
     ) {
-        Column(Modifier.padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(number, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = color)
-            Text(label, style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = Color(0xFF98A2B3))
+            Spacer(Modifier.width(10.dp))
+            Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(status, color = TextSecondary, fontSize = 12.sp)
         }
     }
 }
 
-@Composable
-private fun DeviceRow(device: Device) {
-    val (label, color) = when {
-        !device.online -> "离线" to TextSecondary
-        device.signal == "weak" -> "信号弱" to WarnAmber
-        else -> "在线" to SafeGreen
-    }
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Videocam, contentDescription = null, tint = color, modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(device.name, style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.weight(1f))
-        Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-    }
+private fun displayRoom(room: String): String = when (room.lowercase()) {
+    "living_room" -> "客厅"
+    "bedroom" -> "卧室"
+    "kitchen" -> "厨房"
+    "study" -> "书房"
+    else -> room.replace('_', ' ')
 }

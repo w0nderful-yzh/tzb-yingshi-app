@@ -11,7 +11,7 @@ class Ys7MediaStreamError(RuntimeError):
 
 
 class PcmStreamSource(Protocol):
-    def stream(self, url: str, *, chunk_ms: int) -> AsyncIterator[bytes]: ...
+    def stream(self, url: str, *, frame_ms: int) -> AsyncIterator[bytes]: ...
 
     async def close(self) -> None: ...
 
@@ -20,8 +20,8 @@ class FfmpegPcmStreamSource:
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
 
-    async def stream(self, url: str, *, chunk_ms: int) -> AsyncIterator[bytes]:
-        bytes_per_chunk = round(16_000 * 2 * chunk_ms / 1000)
+    async def stream(self, url: str, *, frame_ms: int) -> AsyncIterator[bytes]:
+        bytes_per_frame = round(16_000 * 2 * frame_ms / 1000)
         executable = imageio_ffmpeg.get_ffmpeg_exe()
         self._process = await asyncio.create_subprocess_exec(
             executable,
@@ -48,7 +48,7 @@ class FfmpegPcmStreamSource:
         try:
             while True:
                 try:
-                    chunk = await self._process.stdout.readexactly(bytes_per_chunk)
+                    chunk = await self._process.stdout.readexactly(bytes_per_frame)
                 except asyncio.IncompleteReadError:
                     break
                 yield chunk

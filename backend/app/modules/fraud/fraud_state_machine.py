@@ -86,6 +86,9 @@ class FraudProcessStateMachine:
         ]
 
     def _advance(self, target: str, evidence: dict[str, Any], reason: str) -> None:
+        if evidence.get("transcript_status") == "PARTIAL" and int(STATE_INFO[target]["index"]) > 2:
+            target = "S2_TRUST_BUILDING"
+            reason = "流式部分转写出现高风险线索，等待最终转写确认。"
         if int(STATE_INFO[target]["index"]) <= self.state_index:
             return
         previous = self.current_state

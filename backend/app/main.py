@@ -8,22 +8,27 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.request_id import RequestIdMiddleware
+from app.infrastructure.database.fraud_session_repository import FraudSessionRepository
 from app.infrastructure.database.risk_event_repository import RiskEventRepository
 from app.infrastructure.database.session import Database
 from app.infrastructure.event_deduplicator import EventDeduplicator
 from app.infrastructure.event_queue import Ys7EventQueue
 from app.infrastructure.external.llm import OpenAiCompatibleFraudLlmJudge
-from app.infrastructure.external.sensevoice import SenseVoiceRecognizer
+from app.infrastructure.external.sensevoice import (
+    ParaformerStreamingRecognizer,
+    SenseVoiceRecognizer,
+)
 from app.infrastructure.external.ys7.api_client import Ys7ApiClient
 from app.infrastructure.external.ys7.event_adapter import Ys7EventAdapter
 from app.infrastructure.external.ys7.event_parser import Ys7EventParser
 from app.infrastructure.external.ys7.media_stream import FfmpegPcmStreamSource
 from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.infrastructure.raw_signal_store import RawSignalStore
-from app.modules.fraud.audio import SpeechRecognizer
+from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
 from app.modules.fraud.service import FraudSessionService
+from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.visual_event_store import VisualEventStore
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
 from app.workers.ys7_event_worker import Ys7EventWorker
@@ -34,6 +39,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     speech_recognizer: SpeechRecognizer | None = None,
+    streaming_speech_recognizer: StreamingSpeechRecognizer | None = None,
     fraud_llm_judge: FraudLlmJudge | None = None,
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
@@ -49,7 +55,9 @@ def create_app(
     )
     event_queue = Ys7EventQueue(maxsize=runtime_settings.ys7_queue_maxsize)
     visual_event_store = VisualEventStore()
+    fraud_session_tracker = FraudSessionTracker()
     risk_event_repository = RiskEventRepository(database) if database is not None else None
+    fraud_session_repository = FraudSessionRepository(database) if database is not None else None
     llm_api_key = (
         runtime_settings.fraud_llm_api_key.get_secret_value()
         if runtime_settings.fraud_llm_api_key is not None
@@ -89,6 +97,7 @@ def create_app(
         llm_max_transcript_chars=runtime_settings.fraud_llm_max_transcript_chars,
         llm_vision_enabled=runtime_settings.fraud_llm_vision_enabled,
         llm_max_images=runtime_settings.fraud_llm_max_images,
+        session_store=fraud_session_repository,
     )
     llm_worker = (
         FraudLlmReviewWorker(
@@ -104,10 +113,19 @@ def create_app(
         model_name=runtime_settings.sensevoice_model,
         device=runtime_settings.sensevoice_device,
     )
+    runtime_streaming_recognizer = streaming_speech_recognizer
+    if runtime_settings.streaming_asr_enabled and runtime_streaming_recognizer is None:
+        runtime_streaming_recognizer = ParaformerStreamingRecognizer(
+            model_name=runtime_settings.streaming_asr_model,
+            device=runtime_settings.streaming_asr_device,
+            hotwords=runtime_settings.streaming_asr_hotwords,
+            hotword_corrections=runtime_settings.streaming_asr_hotword_corrections,
+        )
     fraud_audio_service = FraudAudioService(
         recognizer=runtime_speech_recognizer,
         fraud_session_service=fraud_session_service,
         max_chunk_bytes=runtime_settings.sensevoice_max_chunk_bytes,
+        streaming_recognizer=runtime_streaming_recognizer,
     )
     signal_listener = Ys7SignalListener(
         parser=Ys7EventParser(),
@@ -119,6 +137,7 @@ def create_app(
         event_queue=event_queue,
         adapter=Ys7EventAdapter(),
         visual_event_store=visual_event_store,
+        session_tracker=fraud_session_tracker,
     )
     media_stream_source = FfmpegPcmStreamSource()
     ys7_api_client = Ys7ApiClient(
@@ -146,9 +165,10 @@ def create_app(
         channel_no=runtime_settings.ys7_channel_no,
         protocol=runtime_settings.ys7_live_protocol,
         quality=runtime_settings.ys7_live_quality,
-        chunk_ms=runtime_settings.ys7_media_chunk_ms,
         queue_maxsize=runtime_settings.ys7_media_queue_maxsize,
         elder_alone=runtime_settings.ys7_elder_alone,
+        vad_mode=runtime_settings.ys7_vad_mode,
+        session_tracker=fraud_session_tracker,
     )
 
     @asynccontextmanager

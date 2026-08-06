@@ -8,7 +8,7 @@ from typing import Any
 from .evidence_labels import CLASSIFIER_LABELS
 
 DEFAULT_DATA_DIR = Path(__file__).with_name("data")
-MODEL_NAME = "char_tfidf_logreg_evidence_v1"
+MODEL_NAME = "char_tfidf_calibrated_logreg_evidence_v2"
 
 
 def load_examples(path: str | Path) -> list[dict[str, Any]]:
@@ -42,6 +42,7 @@ class LightweightEvidenceClassifier:
 
     def fit(self, examples: list[dict[str, Any]]) -> LightweightEvidenceClassifier:
         try:
+            from sklearn.calibration import CalibratedClassifierCV  # type: ignore[import-untyped]
             from sklearn.feature_extraction.text import (  # type: ignore[import-untyped]
                 TfidfVectorizer,
             )
@@ -65,11 +66,15 @@ class LightweightEvidenceClassifier:
         features = self.vectorizer.fit_transform([item["text"] for item in examples])
         targets = self.binarizer.fit_transform([item["labels"] for item in examples])
         self.model = OneVsRestClassifier(
-            LogisticRegression(
-                solver="liblinear",
-                class_weight="balanced",
-                max_iter=500,
-                random_state=42,
+            CalibratedClassifierCV(
+                estimator=LogisticRegression(
+                    solver="liblinear",
+                    class_weight="balanced",
+                    max_iter=500,
+                    random_state=42,
+                ),
+                method="sigmoid",
+                cv=3,
             )
         )
         self.model.fit(features, targets)

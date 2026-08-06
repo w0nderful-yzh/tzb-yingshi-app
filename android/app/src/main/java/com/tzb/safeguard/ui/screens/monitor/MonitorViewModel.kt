@@ -2,6 +2,7 @@ package com.tzb.safeguard.ui.screens.monitor
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tzb.safeguard.Session
 import com.tzb.safeguard.data.model.Device
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.repository.SafeRepository
@@ -10,14 +11,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 监控页数据：设备列表 + 当前选中设备 + 萤石 SDK 会话 + AI 识别状态 */
+/** 现场复核页数据：仅包含真实设备和萤石直播会话。 */
 data class MonitorData(
     val devices: List<Device>,
     val selected: Device?,
     val liveSession: LiveSdkSession?,
     val streamLoading: Boolean = false,
-    val streamError: String? = null,
-    val recognition: List<Pair<String, String>>   // AI 识别状态行（占位数据，待 WS 实时推送）
+    val streamError: String? = null
 )
 
 class MonitorViewModel(private val repo: SafeRepository) : ViewModel() {
@@ -30,7 +30,7 @@ class MonitorViewModel(private val repo: SafeRepository) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            val devices = repo.getDevices().getOrElse {
+            val devices = repo.getDevices(Session.currentElderId).getOrElse {
                 _state.value = UiState.Error(it.message ?: "加载失败")
                 return@launch
             }
@@ -100,19 +100,11 @@ class MonitorViewModel(private val repo: SafeRepository) : ViewModel() {
     }
 
     private fun buildData(devices: List<Device>, selected: Device?): MonitorData {
-        // AI 识别状态：正式版来自 WS /api/v1/ws/events 推送 + GET /fraud/visual-events
-        val recognition = listOf(
-            "画面人数" to "1 人",
-            "当前活动" to "客厅 · 坐姿休息",
-            "跌倒风险" to "低",
-            "通话风险监听" to "无异常"
-        )
         return MonitorData(
             devices = devices,
             selected = selected,
             liveSession = null,
-            streamLoading = selected != null,
-            recognition = recognition,
+            streamLoading = selected != null
         )
     }
 }

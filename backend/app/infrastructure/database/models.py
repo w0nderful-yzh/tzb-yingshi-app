@@ -479,6 +479,55 @@ class ModelRunModel(UUIDPrimaryKeyMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class FraudSessionModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "fraud_sessions"
+    __table_args__ = (
+        CheckConstraint("status IN ('ACTIVE', 'CLOSED')", name="status_values"),
+        CheckConstraint("last_activity_at >= started_at", name="activity_after_start"),
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at >= started_at",
+            name="end_after_start",
+        ),
+        UniqueConstraint(
+            "external_device_id",
+            "session_id",
+            name="uq_fraud_sessions_device_session",
+        ),
+        Index(
+            "ix_fraud_sessions_device_status_activity",
+            "external_device_id",
+            "status",
+            "last_activity_at",
+        ),
+    )
+
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    external_device_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    elder_alone: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="ACTIVE")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    speech_events: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    llm_evidence: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    last_llm_review_id: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+
+
 class RiskEventModel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "risk_events"
     __table_args__ = (

@@ -2,69 +2,117 @@ package com.tzb.safeguard.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tzb.safeguard.Session
 import com.tzb.safeguard.data.model.Device
+import com.tzb.safeguard.data.model.ElderInfo
+import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RiskEvent
-import com.tzb.safeguard.data.model.SafetyStatus
-import com.tzb.safeguard.data.model.UserInfo
 import com.tzb.safeguard.data.repository.SafeRepository
 import com.tzb.safeguard.ui.components.UiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 首页聚合数据：用户 + 安全状态 + 设备 + 最近未结事件 */
 data class HomeData(
-    val user: UserInfo,
-    val status: SafetyStatus,
+    val elder: ElderInfo?,
     val devices: List<Device>,
-    val recentEvents: List<RiskEvent>
+    val selectedDevice: Device?,
+    val liveSession: LiveSdkSession? = null,
+    val streamLoading: Boolean = false,
+    val streamError: String? = null,
+    val pendingWarnings: List<RiskEvent>,
+    val recentWarnings: List<RiskEvent>,
 )
 
-sealed interface SosState {
-    data object Idle : SosState
-    data object Sending : SosState
-    data class Sent(val notifiedContacts: Int) : SosState
-    data class Failed(val message: String) : SosState
-}
-
 class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
-
     private val _state = MutableStateFlow<UiState<HomeData>>(UiState.Loading)
     val state = _state.asStateFlow()
 
-    private val _sosState = MutableStateFlow<SosState>(SosState.Idle)
-    val sosState = _sosState.asStateFlow()
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice = _notice.asStateFlow()
 
     init { load() }
 
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            // 串行加载，任一失败即整体失败并提示重试（数据强相关，避免半残页面）
-            val user = repo.getMe().getOrElse { return@launch fail(it) }
-            val status = repo.getSafetyStatus().getOrElse { return@launch fail(it) }
-            val devices = repo.getDevices().getOrElse { return@launch fail(it) }
-            val events = repo.getEvents(status = "open").getOrElse { return@launch fail(it) }
+            val elders = repo.getElders().getOrElse { return@launch fail(it) }
+            val devices = repo.getDevices(Session.currentElderId).getOrElse { return@launch fail(it) }
+            val events = repo.getEvents(elderId = Session.currentElderId).getOrElse {
+                return@launch fail(it)
+            }
+            val fraudWarnings = events.events.filter { it.type == "fraud_suspected" }
+            val selected = devices.devices.firstOrNull { it.online } ?: devices.devices.firstOrNull()
             _state.value = UiState.Success(
-                HomeData(user, status, devices.devices, events.events.take(3))
+                HomeData(
+                    elder = elders.elders.firstOrNull(),
+                    devices = devices.devices,
+                    selectedDevice = selected,
+                    streamLoading = selected != null,
+                    pendingWarnings = fraudWarnings.filter {
+                        it.status == "open" || it.status == "acknowledged"
+                    },
+                    recentWarnings = fraudWarnings.take(3),
+                )
             )
+            selected?.let { loadLiveSession(it.device_id) }
         }
     }
 
-    private fun fail(e: Throwable) {
-        _state.value = UiState.Error(e.message ?: "加载失败")
+    fun retryLive() {
+        val current = _state.value as? UiState.Success ?: return
+        val deviceId = current.data.selectedDevice?.device_id ?: return
+        _state.value = UiState.Success(
+            current.data.copy(liveSession = null, streamLoading = true, streamError = null)
+        )
+        viewModelScope.launch { loadLiveSession(deviceId) }
     }
 
-    /** 一键紧急求助：POST /api/v1/sos */
-    fun sendSos() {
-        if (_sosState.value is SosState.Sending) return
+    fun requestHistoryPlayback() {
+        val current = _state.value as? UiState.Success ?: return
+        val device = current.data.selectedDevice
+        if (device == null) {
+            _notice.value = "当前没有可用摄像头"
+            return
+        }
         viewModelScope.launch {
-            _sosState.value = SosState.Sending
-            repo.sendSos()
-                .onSuccess { _sosState.value = SosState.Sent(it.notified_contacts) }
-                .onFailure { _sosState.value = SosState.Failed(it.message ?: "求助发送失败") }
+            repo.getHistoryPlayback(device.device_id, Session.currentElderId)
+                .onSuccess { _notice.value = "历史回放地址已获取" }
+                .onFailure { _notice.value = "历史回放正在接入萤石云端能力，当前暂不可用" }
         }
     }
 
-    fun resetSos() { _sosState.value = SosState.Idle }
+    fun clearNotice() { _notice.value = null }
+
+    private suspend fun loadLiveSession(deviceId: String) {
+        repo.getLiveSdkSession(deviceId)
+            .onSuccess { session ->
+                val latest = _state.value as? UiState.Success ?: return@onSuccess
+                if (latest.data.selectedDevice?.device_id == deviceId) {
+                    _state.value = UiState.Success(
+                        latest.data.copy(
+                            liveSession = session,
+                            streamLoading = false,
+                            streamError = null,
+                        )
+                    )
+                }
+            }
+            .onFailure { error ->
+                val latest = _state.value as? UiState.Success ?: return@onFailure
+                if (latest.data.selectedDevice?.device_id == deviceId) {
+                    _state.value = UiState.Success(
+                        latest.data.copy(
+                            liveSession = null,
+                            streamLoading = false,
+                            streamError = error.message ?: "获取直播会话失败",
+                        )
+                    )
+                }
+            }
+    }
+
+    private fun fail(error: Throwable) {
+        _state.value = UiState.Error(error.message ?: "加载失败")
+    }
 }

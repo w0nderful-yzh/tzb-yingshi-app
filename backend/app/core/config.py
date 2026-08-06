@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     ys7_channel_no: int = Field(default=1, ge=1)
     ys7_live_protocol: Literal["hls", "rtmp", "flv"] = "flv"
     ys7_live_quality: int = Field(default=2, ge=1, le=3)
-    ys7_media_chunk_ms: int = Field(default=5_000, ge=1_000, le=15_000)
-    ys7_media_queue_maxsize: int = Field(default=4, ge=1, le=20)
+    ys7_media_queue_maxsize: int = Field(default=32, ge=4, le=200)
+    ys7_vad_mode: int = Field(default=2, ge=0, le=3)
     ys7_elder_alone: bool = False
     sensevoice_enabled: bool = False
     sensevoice_model: str = "iic/SenseVoiceSmall"
@@ -45,6 +45,11 @@ class Settings(BaseSettings):
         ge=1024,
         le=50 * 1024 * 1024,
     )
+    streaming_asr_enabled: bool = False
+    streaming_asr_model: str = "paraformer-zh-streaming"
+    streaming_asr_device: str = "cpu"
+    streaming_asr_hotwords: str = "验证码 安全账户 屏幕共享 远程控制 涉案资金 转账 汇款 取现"
+    streaming_asr_hotword_corrections: dict[str, str] = Field(default_factory=dict)
     fraud_llm_enabled: bool = False
     fraud_llm_base_url: str | None = None
     fraud_llm_api_key: SecretStr | None = None

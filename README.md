@@ -1,22 +1,23 @@
 # 老年安全监测项目
 
-本项目面向居家老年人安全监测赛题，规划通过 Android 客户端、FastAPI 后端和萤石摄像头能力，协同实现防诈识别、跌倒风险监测、统一风险事件管理和家属预警。
+本项目面向居家老年人安全监测赛题，通过 Android 客户端、FastAPI 后端和萤石摄像头能力，当前聚焦电信网络诈骗与入户诈骗的识别、分级干预和家属处置闭环。跌倒与心理关怀保留统一事件接入位，由对应模块后续实现。
 
 系统定位是辅助监测和人工决策支持，不替代公安、医疗、急救、银行或支付机构的专业判断。
 
 ## 当前状态
 
-仓库目前已完成 **FastAPI 基础骨架**，可以启动后端并访问健康检查和 OpenAPI 文档。
+仓库目前已完成 FastAPI、PostgreSQL、防诈状态机、家属端 Android App 和萤石真实直播接入，App 围绕“风险预测与提前介入”组织交互。
 
-- 尚未创建 Android 可运行工程；
+- Android 工程已收敛为家属端单角色，真实接口和萤石原生 H.264/H.265 直播已经接通；
 - 已创建 FastAPI 应用工厂、配置、请求 ID、统一响应和异常处理；
 - 已提供 `GET /api/v1/health` 和后端自动化测试；
 - 已实现萤石事件的模拟契约接收、原文落盘、去重、异步队列和统一视觉事件查询；
 - 尚未取得正式萤石 Topic、签名/解密规则和完整消息样例，因此当前接收协议不能视为正式平台对接；
 - 已创建 PostgreSQL 数据库结构、SQLAlchemy Model 和 Alembic 首个迁移；
-- 防诈规则、轻量文本分类、证据融合和 S0-S5 状态机已迁入，已提供转写分析和活动会话查询接口；
-- 防诈风险事件已接 PostgreSQL Repository；萤石视觉事件、活动防诈会话和原始消息消费仍使用内存/文件实现；
-- 已接入萤石标准直播地址取流、FFmpeg 连续音轨切块和 SenseVoiceSmall 转写；正式云信令协议、跌倒业务、统一事件查询与处置、WebSocket 尚未接入；
+- 防诈已采用“规则 + 校准轻量分类器 + S0-S5 状态机 + 异步 LLM 复核”四层决策，LLM 不作为首判和唯一报警依据；
+- 防诈风险事件和防诈会话已接 PostgreSQL Repository，会话支持重启恢复；萤石统一视觉事件和原始消息消费仍使用内存/文件实现；
+- 已接入萤石标准直播地址、Android 原生直播、FFmpeg 连续音轨、WebRTC VAD、Paraformer 600 ms 流式转写和 SenseVoiceSmall 终句复核；正式云信令协议与 WebSocket 尚待官方消息字段确认；
+- 当前产品范围只实现防诈，跌倒和心理关怀不展示模拟结果；
 - 尚未提供任何准确率、召回率或实时性结论。
 
 后续功能必须通过独立分支和 Pull Request 逐步实现，README 中的规划内容不得被表述为已完成功能。
@@ -68,16 +69,16 @@ FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接�
 
 | 领域 | 选择 | 状态 |
 |---|---|---|
-| Android | Kotlin、Jetpack Compose、MVVM | 规划 |
+| Android | Kotlin、Jetpack Compose、MVVM | 已落地首版，防诈交互重构中 |
 | 后端 | FastAPI、Pydantic | 已落地基础骨架 |
 | 数据库 | PostgreSQL、SQLAlchemy 2.x、Alembic | 已落地结构和迁移 |
 | 实时通知 | WebSocket | 规划 |
 | Python依赖 | uv | 已落地 |
 | 测试 | Pytest、Android Unit Test | 后端已落地基础契约测试 |
-| 摄像头接入 | 萤石设备能力、AI服务和云信令 | 规划 |
-| 防诈推理 | 规则、字符 TF-IDF、S0-S5 状态机 | 已落地首版 |
-| 语音识别 | SenseVoiceSmall、FunASR | 已落地短 WAV 音频块 |
-| 媒体取流 | 萤石直播地址、FFmpeg | 已落地单设备音轨首版 |
+| 摄像头接入 | 萤石设备能力、AI服务和云信令 | 直播已落地，正式云信令待确认 |
+| 防诈推理 | 规则、校准字符 TF-IDF、S0-S5、LLM 复核 | 已落地四层决策 |
+| 语音识别 | Paraformer Streaming、SenseVoiceSmall、FunASR | 已落地流式部分转写与终句复核 |
+| 媒体取流 | 萤石直播地址、FFmpeg、WebRTC VAD | 已落地单设备连续音轨 |
 
 新增依赖或正式落地规划技术时，必须同步更新本文档和对应架构决策。
 
@@ -85,7 +86,7 @@ FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接�
 
 ```text
 .
-├── android/                  Android App预留目录
+├── android/                  Android App（Compose、MVVM、萤石原生直播）
 ├── backend/                  FastAPI模块化单体
 │   ├── app/
 │   │   ├── api/v1/          API路由
@@ -225,7 +226,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/fraud/analyze \
   }'
 ```
 
-同设备近 120 秒的萤石视觉事件会作为上下文参与状态机。活动会话当前保存在进程内存；非 S0 风险快照在数据库启用时幂等写入 `risk_events`。
+同设备近 120 秒的萤石视觉事件会作为上下文参与状态机。启用数据库后，活动会话写入 `fraud_sessions` 并可在进程重启后恢复；非 S0 风险快照幂等写入 `risk_events`。
 
 ### SenseVoice 音频块
 
@@ -240,6 +241,10 @@ uv sync --extra sensevoice --dev
 APP_SENSEVOICE_ENABLED=true
 APP_SENSEVOICE_MODEL=iic/SenseVoiceSmall
 APP_SENSEVOICE_DEVICE=cpu
+APP_STREAMING_ASR_ENABLED=true
+APP_STREAMING_ASR_MODEL=paraformer-zh-streaming
+APP_STREAMING_ASR_DEVICE=cpu
+APP_STREAMING_ASR_HOTWORDS=验证码 安全账户 屏幕共享 远程控制 涉案资金 转账 汇款 取现
 ```
 
 随后通过 `POST /api/v1/fraud/audio/chunks` 上传不超过 15 秒的 WAV 块。后端不长期保存上传音频，SenseVoice 转写会带上由 `started_at` 换算的绝对时间并自动进入防诈状态机。完整字段见 [API 契约](docs/api/README.md)。
@@ -261,7 +266,9 @@ APP_YS7_ELDER_ALONE=false
 
 也可仅配置 `APP_YS7_ACCESS_TOKEN`，但固定 Token 过期后需要人工更新；配置 AppKey/AppSecret 时，后端会自动获取并缓存 Token。启动后通过 `GET /api/v1/integrations/ys7/media/status` 查看连接、重连、队列和已处理音频块状态。
 
-媒体 Worker 获取萤石直播地址后，通过 FFmpeg 只解码音轨为 16 kHz 单声道 PCM，每 5 秒直接调用 `FraudAudioService`。音频不落盘；当 SenseVoice 处理速度低于实时流时，有界队列会丢弃最旧块以避免告警延迟持续累积。
+媒体 Worker 获取萤石直播地址后，通过 FFmpeg 只解码音轨为 16 kHz 单声道 PCM。WebRTC VAD 按自然停顿生成语音片段：连续语音 200 ms 起段、静音 700 ms 收段，前后各保留 300 ms；连续讲话达到 10 秒时强制切分，并为下一段重叠保留 1 秒。讲话期间 Paraformer 每 600 ms 更新一次 `PARTIAL` 转写，部分结果最多推动到 S2 且不写告警；自然停顿后 SenseVoice 对完整语句给出 `FINAL` 转写和语言、情绪、声音事件标签，再替换同一条部分证据并允许进入 S3-S5。重叠终句按绝对时间和文本相似度去重。音频不落盘；有界队列积压时丢弃最旧任务，避免告警延迟持续累积。
+
+防诈会话不是进程级永久会话：第一段有效语音或新的 `phone_call` 事件创建会话，连续静音 30 秒或会话运行满 10 分钟后，下一段语音创建新会话。新会话开始时旧会话持久化为 `CLOSED`。
 
 ## 数据与隐私
 
@@ -288,6 +295,7 @@ master -> feat/fraud-xxx 或 feat/fall-xxx -> Pull Request -> 审查 -> master
 - [总体架构](docs/architecture/README.md)
 - [API契约](docs/api/README.md)
 - [防诈模块](docs/modules/fraud.md)
+- [防诈优先 App 与跨模块协作说明](docs/product/fraud-first-app.md)
 - [跌倒模块](docs/modules/fall.md)
 - [测试与评估](docs/testing/README.md)
 - [空骨架设计](docs/superpowers/specs/2026-08-04-project-skeleton-design.md)

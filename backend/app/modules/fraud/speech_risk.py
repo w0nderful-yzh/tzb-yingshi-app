@@ -65,6 +65,7 @@ def build_speech_events(
             "language": segment.get("language"),
             "emotion": segment.get("emotion"),
             "audio_events": list(segment.get("audio_events") or []),
+            "transcript_status": str(segment.get("transcript_status", "FINAL")),
             "risk_tags": observations["matched_categories"],
             "matched_terms": observations["matched_terms"],
             "context_adjustments": observations["context_adjustments"],

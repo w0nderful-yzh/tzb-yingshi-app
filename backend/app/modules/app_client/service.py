@@ -35,6 +35,8 @@ from app.modules.app_client.schemas import (
     EventDetailData,
     EventListData,
     EventsStatsData,
+    EvidenceFrameData,
+    FraudContextData,
     LiveSdkSessionData,
     LiveUrlData,
     ReasonItem,
@@ -112,6 +114,102 @@ def _evidence_image_url(evidence: dict[str, object]) -> str | None:
                 if isinstance(image_url, str):
                     return image_url
     return None
+
+
+def _parse_evidence_time(value: object, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        seconds = float(value) / 1000 if value > 10_000_000_000 else float(value)
+        return datetime.fromtimestamp(seconds, UTC)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def _evidence_frames(
+    evidence: dict[str, object],
+    occurred_at: datetime,
+) -> list[EvidenceFrameData]:
+    frames: list[EvidenceFrameData] = []
+    sources = evidence.get("evidence_frames")
+    candidates = sources if isinstance(sources, list) else []
+    chain = evidence.get("evidence_chain")
+    if isinstance(chain, list):
+        candidates = [*candidates, *chain]
+
+    seen: set[tuple[str, datetime]] = set()
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        image_url = item.get("image_url") or item.get("evidence_image_url")
+        if not isinstance(image_url, str) or not image_url:
+            continue
+        raw_time = item.get("captured_at") or item.get("timestamp")
+        end_ms = item.get("end_ms")
+        captured_at = (
+            occurred_at + timedelta(milliseconds=float(end_ms))
+            if raw_time is None and isinstance(end_ms, (int, float))
+            else _parse_evidence_time(raw_time, occurred_at)
+        )
+        key = (image_url, captured_at)
+        if key not in seen:
+            seen.add(key)
+            frames.append(EvidenceFrameData(captured_at=captured_at, image_url=image_url))
+
+    direct = _evidence_image_url(evidence)
+    if direct and not any(frame.image_url == direct for frame in frames):
+        frames.append(EvidenceFrameData(captured_at=occurred_at, image_url=direct))
+    return sorted(frames, key=lambda frame: frame.captured_at)[-8:]
+
+
+def _event_location(evidence: dict[str, object]) -> str:
+    value = evidence.get("location") or evidence.get("room")
+    return value if isinstance(value, str) else ""
+
+
+def _fraud_scene(evidence: dict[str, object]) -> Literal["telecom", "home_visit", "unknown"]:
+    chain = evidence.get("evidence_chain")
+    if not isinstance(chain, list):
+        return "unknown"
+
+    items = [item for item in chain if isinstance(item, dict)]
+    kinds = {str(item.get("kind", "")) for item in items}
+    if "visitor_presence" in kinds:
+        return "home_visit"
+    if "phone_call_active" in kinds:
+        return "telecom"
+
+    people_counts = [
+        item.get("people_count")
+        for item in items
+        if item.get("kind") == "people_count_context"
+    ]
+    if any(isinstance(count, int) and count >= 2 for count in people_counts):
+        return "home_visit"
+    if any(item.get("source") == "speech" for item in items):
+        return "telecom"
+    return "unknown"
+
+
+def _fraud_context(event: RiskEventModel) -> FraudContextData | None:
+    if event.event_type != "FRAUD_SUSPECTED":
+        return None
+    evidence = event.evidence or {}
+    raw_index = evidence.get("state_index", 0)
+    state_index = raw_index if isinstance(raw_index, int) else 0
+    return FraudContextData(
+        scene=_fraud_scene(evidence),
+        state=str(evidence.get("state", "S0_NORMAL")),
+        state_index=max(0, min(5, state_index)),
+        state_label=str(evidence.get("state_label", "风险分析")),
+        decision=str(evidence.get("decision", "observe")),
+        transition_reason=str(evidence.get("transition_reason", event.summary)),
+    )
 
 
 def _highest_level(events: list[RiskEventModel]) -> str | None:
@@ -328,6 +426,8 @@ class AppClientService:
             device_id=event.external_device_id or "",
             occurred_at=event.occurred_at,
             evidence_image_url=_evidence_image_url(evidence),
+            evidence_frames=_evidence_frames(evidence, event.occurred_at),
+            location=_event_location(evidence),
             analysis=AnalysisData(
                 confidence=float(event.confidence or 0.0),
                 reasons=reasons,
@@ -335,6 +435,7 @@ class AppClientService:
             ),
             notifications=[],
             escalation=EscalationData(),
+            fraud=_fraud_context(event),
         )
 
     async def create_sos(
@@ -613,6 +714,8 @@ class AppClientService:
         return ActivityData(hours=[])
 
     def _event_item(self, event: RiskEventModel) -> RiskEventItem:
+        evidence = event.evidence or {}
+        fraud = _fraud_context(event)
         return RiskEventItem(
             event_id=_event_id(event),
             type=_EVENT_TYPES[event.event_type],
@@ -623,7 +726,14 @@ class AppClientService:
             occurred_at=event.occurred_at,
             status=event.status.lower(),
             version=event.version,
-            evidence_image_url=_evidence_image_url(event.evidence or {}),
+            evidence_image_url=_evidence_image_url(evidence),
+            evidence_frames=_evidence_frames(evidence, event.occurred_at),
+            location=_event_location(evidence),
+            fraud_scene=fraud.scene if fraud else None,
+            fraud_state=fraud.state if fraud else None,
+            fraud_state_index=fraud.state_index if fraud else None,
+            fraud_state_label=fraud.state_label if fraud else None,
+            fraud_decision=fraud.decision if fraud else None,
         )
 
     async def _authorized_event(
