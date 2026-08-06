@@ -11,9 +11,9 @@ object ServiceLocator {
     val repository: SafeRepository by lazy { SafeRepository(NetworkModule.apiService) }
 }
 
-/** 当前会话角色：elder 老人端 / family 家属端；角色选择页写入 */
+/** 当前为家属端单角色；联调期固定守护一位老人。 */
 object Session {
-    var role: String = "elder"
+    const val role: String = "family"
     var currentElderId: String = "u-elder-001"   // 家属端当前查看的老人（联调期固定 1 位）
 }
 

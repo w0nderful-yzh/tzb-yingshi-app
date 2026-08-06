@@ -57,6 +57,14 @@ class LiveSdkSessionData(BaseModel):
     expires_in: int
 
 
+FraudScene = Literal["telecom", "home_visit", "unknown"]
+
+
+class EvidenceFrameData(BaseModel):
+    captured_at: datetime
+    image_url: str
+
+
 class RiskEventItem(BaseModel):
     event_id: str
     type: str
@@ -68,6 +76,13 @@ class RiskEventItem(BaseModel):
     status: str
     version: int
     evidence_image_url: str | None = None
+    evidence_frames: list[EvidenceFrameData] = Field(default_factory=list)
+    location: str = ""
+    fraud_scene: FraudScene | None = None
+    fraud_state: str | None = None
+    fraud_state_index: int | None = Field(default=None, ge=0, le=5)
+    fraud_state_label: str | None = None
+    fraud_decision: str | None = None
 
 
 class EventListData(BaseModel):
@@ -99,6 +114,15 @@ class EscalationData(BaseModel):
     status: str = "pending"
 
 
+class FraudContextData(BaseModel):
+    scene: FraudScene
+    state: str
+    state_index: int = Field(ge=0, le=5)
+    state_label: str
+    decision: str
+    transition_reason: str
+
+
 class EventDetailData(BaseModel):
     event_id: str
     type: str
@@ -108,9 +132,12 @@ class EventDetailData(BaseModel):
     device_id: str = ""
     occurred_at: datetime
     evidence_image_url: str | None = None
+    evidence_frames: list[EvidenceFrameData] = Field(default_factory=list)
+    location: str = ""
     analysis: AnalysisData
     notifications: list[NotificationItem]
     escalation: EscalationData
+    fraud: FraudContextData | None = None
 
 
 class SosRequest(BaseModel):
@@ -146,6 +173,18 @@ class StatusPatchRequest(BaseModel):
 
 class EmptyData(BaseModel):
     pass
+
+
+class HistoryPlaybackData(BaseModel):
+    url: str
+    protocol: str
+    start_at: datetime
+    expires_in: int
+
+
+class InterventionReminderRequest(BaseModel):
+    channel: Literal["device_voice", "family_call"] = "device_voice"
+    message: str = Field(default="请暂停当前操作，家人正在联系您核实情况。", max_length=200)
 
 
 class ContactItem(BaseModel):

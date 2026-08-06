@@ -10,17 +10,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * 设计规范与 prototype/assets/style.css 保持一致：
- * - 高对比度浅色底（正文 #1A1A1A / 底 #FFFFFF，对比度 > 15:1）
+ * 家属端极简视觉：纯白背景、深色正文、蓝色操作强调。
  * - 告警三级色：提醒琥珀 / 警告橙 / 紧急红
  * - 适老化字号：正文 20sp 起
  */
-val Primary = Color(0xFF1B5FC1)
-val PrimaryDark = Color(0xFF144A99)
-val TextMain = Color(0xFF1A1A1A)
-val TextSecondary = Color(0xFF4B5563)
-val BgPage = Color(0xFFF5F6F8)
-val LineColor = Color(0xFFD8DCE3)
+val Primary = Color(0xFF2563EB)
+val PrimaryDark = Color(0xFF1D4ED8)
+val TextMain = Color(0xFF111827)
+val TextSecondary = Color(0xFF667085)
+val BgPage = Color.White
+val LineColor = Color(0xFFE7EAF0)
 
 val SafeGreen = Color(0xFF15803D)
 val SafeGreenBg = Color(0xFFE8F5EC)
@@ -44,23 +43,22 @@ private val LightColors = lightColorScheme(
     error = WarnRed
 )
 
-/** 适老化排版：整体比普通 App 大 2-4sp */
-val ElderTypography = Typography(
-    headlineLarge = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold, color = TextMain),
-    headlineMedium = TextStyle(fontSize = 23.sp, fontWeight = FontWeight.Bold, color = TextMain),
-    titleLarge = TextStyle(fontSize = 21.sp, fontWeight = FontWeight.Bold, color = TextMain),
-    titleMedium = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = TextMain),
-    bodyLarge = TextStyle(fontSize = 20.sp, color = TextMain, lineHeight = 30.sp),
-    bodyMedium = TextStyle(fontSize = 17.sp, color = TextMain, lineHeight = 26.sp),
-    bodySmall = TextStyle(fontSize = 15.sp, color = TextSecondary, lineHeight = 22.sp),
-    labelLarge = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold)
+val AppTypography = Typography(
+    headlineLarge = TextStyle(fontSize = 25.sp, fontWeight = FontWeight.Bold, color = TextMain),
+    headlineMedium = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextMain),
+    titleLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain),
+    titleMedium = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = TextMain),
+    bodyLarge = TextStyle(fontSize = 18.sp, color = TextMain, lineHeight = 27.sp),
+    bodyMedium = TextStyle(fontSize = 16.sp, color = TextMain, lineHeight = 24.sp),
+    bodySmall = TextStyle(fontSize = 14.sp, color = TextSecondary, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
 )
 
 @Composable
 fun SafeGuardTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = LightColors,
-        typography = ElderTypography,
+        typography = AppTypography,
         content = content
     )
 }

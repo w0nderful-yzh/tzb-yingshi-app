@@ -86,7 +86,7 @@ fun AppCard(
     }
 }
 
-/** 大按钮：最小高度 60dp（适老触控热区），22sp 加粗；onClick 置末尾以支持尾随 lambda */
+/** 家属端主操作按钮：保持清晰触控热区，不占据过多页面空间。 */
 @Composable
 fun BigActionButton(
     text: String,
@@ -100,7 +100,7 @@ fun BigActionButton(
     if (outlined) {
         OutlinedButton(
             onClick = onClick,
-            modifier = modifier.fillMaxWidth().heightIn(min = 60.dp),
+            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             border = BorderStroke(2.dp, Primary),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryDark)
@@ -108,7 +108,7 @@ fun BigActionButton(
     } else {
         Button(
             onClick = onClick,
-            modifier = modifier.fillMaxWidth().heightIn(min = 60.dp),
+            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor)
         ) { ButtonInner(text, icon) }
@@ -121,7 +121,7 @@ private fun ButtonInner(text: String, icon: ImageVector?) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(8.dp))
     }
-    Text(text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    Text(text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = LocalContentColor.current)
 }
 
 /** 告警级别徽标：颜色 + 图标 + 文字三通道（不单独依赖颜色） */
@@ -175,17 +175,21 @@ fun levelBgColor(level: String): Color = when (level) {
 }
 
 fun eventStatusLabel(status: String): String = when (status) {
-    "open" -> "待确认"
-    "acknowledged" -> "已知晓"
-    "resolved" -> "已处理"
+    "open" -> "待介入"
+    "acknowledged" -> "介入中"
+    "resolved" -> "已结束"
     "false_alarm" -> "误报"
     else -> status
 }
 
 /** 告警条目卡片：左侧 8dp 级别色条，与原型一致 */
 @Composable
-fun AlertCard(event: RiskEvent, onClick: () -> Unit) {
-    val (typeLabel, typeIcon, typeColor) = eventTypeMeta(event.type)
+fun AlertCard(event: RiskEvent, showScene: Boolean = true, onClick: () -> Unit) {
+    val (typeLabel, typeIcon, typeColor) = when (event.fraud_scene) {
+        "home_visit" -> Triple("入户风险", Icons.Filled.MeetingRoom, WarnOrange)
+        "telecom" -> Triple("电诈风险", Icons.Filled.PhoneInTalk, WarnOrange)
+        else -> eventTypeMeta(event.type)
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
@@ -204,7 +208,10 @@ fun AlertCard(event: RiskEvent, onClick: () -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(event.title, style = MaterialTheme.typography.titleMedium)
+                    if (event.type == "fraud_suspected" && showScene) {
+                        Text(typeLabel, style = MaterialTheme.typography.bodySmall, color = typeColor)
+                    }
+                    Text(event.fraud_state_label ?: event.title, style = MaterialTheme.typography.titleMedium)
                     if (event.summary.isNotBlank()) {
                         Text(event.summary, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                     }
@@ -253,19 +260,10 @@ fun KeyValueRow(key: String, value: String, valueColor: Color = TextMain) {
 
 data class TabItem(val route: String, val label: String, val icon: ImageVector, val badge: Int = 0)
 
-val ElderTabs = listOf(
+val AppTabs = listOf(
     TabItem("home", "首页", Icons.Filled.Home),
-    TabItem("monitor", "监控", Icons.Filled.Videocam),
-    TabItem("alerts", "消息", Icons.Filled.Notifications, badge = 2),
-    TabItem("care", "关怀", Icons.Filled.Favorite),
+    TabItem("alerts", "消息", Icons.Filled.Notifications),
     TabItem("profile", "我的", Icons.Filled.Person)
-)
-
-val FamilyTabs = listOf(
-    TabItem("family", "看板", Icons.Filled.Dashboard),
-    TabItem("alerts", "告警", Icons.Filled.Notifications, badge = 1),
-    TabItem("monitor", "实时", Icons.Filled.Videocam),
-    TabItem("profile", "设置", Icons.Filled.Settings)
 )
 
 @Composable
@@ -288,7 +286,7 @@ fun AppBottomBar(tabs: List<TabItem>, currentRoute: String?, onNavigate: (String
                     selectedTextColor = Primary,
                     unselectedIconColor = TextSecondary,
                     unselectedTextColor = TextSecondary,
-                    indicatorColor = Color(0xFFEAF2FD)
+                    indicatorColor = Color(0xFFEAF1FF)
                 )
             )
         }

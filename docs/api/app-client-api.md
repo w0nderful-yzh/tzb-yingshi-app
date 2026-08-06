@@ -1,7 +1,7 @@
 # App 端联调接口设计（老人端 / 家属端）
 
 > 状态：第一版 App 联调接口已落地。正式 Bearer 鉴权、可靠通知任务、联系人写接口和活动热力数据源仍按各节说明继续建设。
-> 变更需遵循 [API 契约变更流程](README.md#变更流程)。心理关怀模块接口本期暂缓，后续单独补充。
+> 变更需遵循 [API 契约变更流程](README.md#变更流程)。当前 App 只消费防诈事件；跌倒与心理关怀按 [跨模块协作说明](../product/fraud-first-app.md) 保留接入边界。
 
 第一阶段聚焦“身份与守护关系 → 统一事件 → SOS/处置 → 可靠通知 → 设备查看”的闭环。设备完整 CRUD、主动一键回呼和活动热力图列入第二阶段；数据库结构已升级到迁移头 `9b4e2f7a1c32`，接口实现状态仍以每节标记为准。
 
@@ -11,8 +11,8 @@
 - `POST /sos`；
 - 事件列表、详情、老人确认和家属状态处置；
 - 设备列表、萤石短时直播地址和原生 SDK 直播会话；
-- 联系人只读列表、家属守护老人列表和事件统计；
-- `/stats/activity` 暂返回空集合，App 展示真实空态，不生成模拟热力数据。
+- 联系人只读列表、家属守护老人列表；
+- 事件统计和 `/stats/activity` 保留后端兼容接口，当前防诈 App 不调用。
 
 联调身份暂由 `X-Demo-Role: elder|family` 提供，仅在 `APP_DEMO_IDENTITY_ENABLED=true` 时生效；生产环境启用前必须替换为正式 Bearer Token。
 
@@ -20,15 +20,15 @@
 
 | 能力 | 老人端 | 家属端 |
 |---|:---:|---|
-| 查看本人安全状态总览 | ✅ | ✅（远程查看被守护老人） |
+| 查看防诈守护状态 | ✅ | ✅（远程查看被守护老人） |
 | 一键紧急求助（SOS） | ✅ | — |
-| 告警确认（我没事 / 我需要帮助） | ✅ | ✅（代为确认） |
-| 告警处置（确认、标记误报、回呼） | 简化确认 | ✅ |
-| 查看实时监控画面 | ✅ | ✅ |
+| 防诈确认（停止操作 / 需要家属帮助） | ✅ | — |
+| 防诈处置（知晓、解决、误报） | — | ✅ |
+| 从风险详情查看实时画面 | ✅ | ✅ |
 | 设备绑定与管理 | 只读查看 | 第二阶段 |
-| 紧急联系人管理 | 只读查看 | ✅ |
-| 守护设置（灵敏度、开关） | 只读查看 | ✅ |
-| 数据看板（事件历史、活动规律） | — | 事件统计第一阶段，活动规律第二阶段 |
+| 紧急联系人 | 只读查看 | 只读查看 |
+| 防诈能力接入状态 | 只读查看 | 只读查看 |
+| 跌倒/心理关怀 | 占位 | 占位 |
 | 家属绑定（扫码） | 出示绑定码 | 扫码绑定 |
 
 鉴权按角色区分：`role=elder` 的令牌只能访问本人数据；`role=family` 的令牌只能访问已绑定老人的数据。API 的 `family` 对应数据库角色 `GUARDIAN`。服务端必须逐请求校验 `elder_id ∈ 当前用户 ACTIVE 绑定范围`，不依赖客户端传入。
@@ -140,6 +140,8 @@ Idempotency-Key: <由客户端为本次长按生成的 UUID>
 
 ### 3.4 告警确认（我没事 / 我需要帮助）【规划】
 
+该接口保留给未来的设备端或其他老人触点，当前家属端 App 不调用。
+
 ```text
 POST /api/v1/events/{event_id}/confirm
 Idempotency-Key: <UUID>
@@ -151,7 +153,7 @@ Idempotency-Key: <UUID>
 
 `action` 枚举：`im_ok`（事件置为 `resolved`）、`need_help`（事件置为 `acknowledged`，但仍保持未解决，并立即创建外呼紧急联系人的升级任务）。老人端告警全屏页 60 秒倒计时无操作由服务端自动升级，无需客户端轮询。版本冲突返回 `409`。
 
-### 3.5 我的消息列表【规划】
+### 3.5 我的防诈事件列表【已实现】
 
 ```text
 GET /api/v1/events?level=&status=&limit=20&cursor=
@@ -162,19 +164,32 @@ GET /api/v1/events?level=&status=&limit=20&cursor=
 ```json
 {
   "event_id": "evt_001",
-  "type": "fall_suspected",
-  "level": "emergency",
-  "title": "疑似跌倒",
-  "summary": "客厅检测到倒地并持续 25 秒未起身",
+  "type": "fraud_suspected",
+  "level": "warning",
+  "title": "疑似诈骗风险",
+  "summary": "出现身份冒充和验证码索取证据",
   "device_id": "camera-01",
   "occurred_at": "2026-08-04T15:02:11+08:00",
   "status": "open",
   "version": 1,
-  "evidence_image_url": null
+  "evidence_image_url": null,
+  "evidence_frames": [
+    { "captured_at": "2026-08-04T15:02:00+08:00", "image_url": "https://cdn.example/frame-00.jpg" },
+    { "captured_at": "2026-08-04T15:02:11+08:00", "image_url": "https://cdn.example/frame-11.jpg" }
+  ],
+  "location": "客厅",
+  "fraud_scene": "telecom",
+  "fraud_state": "S4_ACTION_INDUCEMENT",
+  "fraud_state_index": 4,
+  "fraud_state_label": "敏感操作诱导",
+  "fraud_decision": "block"
 }
 ```
 
 `type` 枚举（初版）：`fall_suspected | fraud_suspected | stranger | inactivity | sos | device_offline | night_leave_bed | sedentary`。
+当前 App 只展示 `fraud_suspected`。防诈事件的 `fraud_scene` 为 `telecom | home_visit | unknown`；其他事件返回 `null`。
+`fraud_state*` 与 `fraud_decision` 是列表页使用的预测摘要，避免首页为每条风险再次请求详情。首页不按 `fraud_scene` 拆分入口，具体场景只在预警消息和详情中展示。
+`evidence_frames` 保持抓拍地址与采集时间戳一一对应，按时间升序返回；历史数据只有单张图时，服务端会用 `occurred_at` 兼容生成一个画面条目。
 
 `next_cursor=null` 表示已经到末页。客户端不得解析或自行拼接 `cursor`。
 
@@ -246,7 +261,15 @@ GET /api/v1/devices/{device_id}/live-sdk-session
 - 当前 Demo 使用萤石 AccessToken 授权。生产环境应启用正式用户鉴权，并切换为设备/通道级小权限 Token；
 - SDK 内部调试日志必须关闭，因为其请求日志可能包含 AccessToken。
 
-### 3.9 守护设置查询【规划】
+### 3.9 事件时间点历史回放【TODO，当前返回 501】
+
+```text
+GET /api/v1/devices/{device_id}/history-playback?elder_id=&at=&duration_seconds=30
+```
+
+App 已声明并接入入口。后端完成设备归属校验后明确返回 `501 Not Implemented`；待萤石历史回放能力接入后，返回短时有效的 `url`、`protocol`、`start_at` 和 `expires_in`，不得用直播地址冒充历史回放。
+
+### 3.10 守护设置查询【规划】
 
 ```text
 GET /api/v1/settings
@@ -318,7 +341,7 @@ GET /api/v1/events?elder_id=u-elder-001&level=&status=&type=&from=&to=&limit=20&
 
 与 3.5 同构，家属端必须显式传 `elder_id`，服务端校验绑定关系，未绑定返回 `403`。事件详情按 ID 访问时，对不存在和无权查看统一返回 `404`，避免泄露其他家庭的事件是否存在。
 
-### 4.4 事件详情【规划】
+### 4.4 事件详情【已实现】
 
 ```text
 GET /api/v1/events/{event_id}
@@ -329,34 +352,45 @@ GET /api/v1/events/{event_id}
   "code": 0,
   "message": "success",
   "data": {
-    "event_id": "evt_001",
-    "type": "fall_suspected",
-    "level": "emergency",
+    "event_id": "evt_002",
+    "type": "fraud_suspected",
+    "level": "warning",
     "status": "open",
     "version": 1,
     "device_id": "camera-01",
-    "occurred_at": "2026-08-04T15:02:11+08:00",
-    "evidence_image_url": "https://example.invalid/evidence.jpg",
+    "occurred_at": "2026-08-04T11:20:05+08:00",
+    "evidence_image_url": null,
+    "evidence_frames": [
+      { "captured_at": "2026-08-04T11:19:50+08:00", "image_url": "https://cdn.example/frame-01.jpg" },
+      { "captured_at": "2026-08-04T11:20:05+08:00", "image_url": "https://cdn.example/frame-02.jpg" }
+    ],
+    "location": "客厅",
     "analysis": {
       "confidence": 0.87,
       "reasons": [
-        { "key": "down_duration_seconds", "label": "倒地姿态持续", "value": "25 秒" },
-        { "key": "motion_drop", "label": "倒地前运动变化", "value": "突然下降" }
+        { "key": "identity_claim", "label": "身份冒充", "value": "自称银行客服" },
+        { "key": "credential_request", "label": "敏感信息", "value": "索要短信验证码" }
       ],
       "disclaimer": "AI 辅助判断，不替代专业结论"
     },
-    "notifications": [
-      { "target": "张伟", "channel": "push+sms", "sent_at": "2026-08-04T15:02:13+08:00", "ack": false }
-    ],
-    "escalation": { "auto_call_at": "2026-08-04T15:03:11+08:00", "status": "pending" }
+    "notifications": [],
+    "escalation": { "auto_call_at": null, "status": "pending" },
+    "fraud": {
+      "scene": "telecom",
+      "state": "S4_ACTION_INDUCEMENT",
+      "state_index": 4,
+      "state_label": "敏感操作诱导",
+      "decision": "block",
+      "transition_reason": "出现验证码索取和身份冒充证据"
+    }
   },
   "request_id": "req_xxx"
 }
 ```
 
-防诈类事件的 `analysis.reasons` 复用防诈状态机的 `evidence_chain` / `transition_reason` 生成，保持可解释性。
+防诈类事件的 `analysis.reasons` 复用防诈状态机的 `evidence_chain` 生成；`fraud` 提供场景、S0-S5 阶段、决策与迁移原因。非防诈事件的 `fraud` 为 `null`。
 
-### 4.5 事件处置【规划】
+### 4.5 事件处置【已实现】
 
 ```text
 PATCH /api/v1/events/{event_id}/status
@@ -369,7 +403,20 @@ Idempotency-Key: <UUID>
 
 `status` 枚举：`acknowledged | resolved | false_alarm`。不允许从终态返回 `open`；非法流转或版本冲突返回 `409`。`false_alarm` 样本回流用于降低误报（写入事件备注，不直接参与模型训练）。每次处置都追加 `event_actions` 审计记录。
 
-### 4.6 一键回呼老人【第二阶段】
+### 4.6 设备语音介入提醒【TODO，当前返回 501】
+
+```text
+POST /api/v1/events/{event_id}/intervention-reminder
+Idempotency-Key: <UUID>
+```
+
+```json
+{ "channel": "device_voice", "message": "请暂停当前操作，家人正在联系您核实情况。" }
+```
+
+App 详情页已保留操作入口。后端先校验事件查看权限，再明确返回 `501 Not Implemented`；待接入萤石设备语音或真实外呼后，必须记录送达状态和动作审计，不能仅返回固定成功文案。
+
+### 4.7 一键回呼老人【第二阶段】
 
 ```text
 POST /api/v1/events/{event_id}/call
@@ -377,7 +424,7 @@ POST /api/v1/events/{event_id}/call
 
 服务端通过萤石设备双向语音或电话外呼发起，响应 `data`：`{ "call_status": "ringing" }`。也可不带事件独立呼叫：`POST /api/v1/family/elders/{elder_id}/call`。
 
-### 4.7 紧急联系人管理【规划】
+### 4.8 紧急联系人管理【规划】
 
 ```text
 GET /api/v1/contacts?elder_id=
@@ -398,7 +445,7 @@ POST /api/v1/contacts/{contact_id}/confirm
 
 `POST/PATCH/DELETE` 均需 `Idempotency-Key`。新增或修改联系人时请求体提交完整 `phone`，服务端加密落库，只额外保存末四位；API 响应和日志仅输出 `phone_masked`。变更先写入待确认内容，原有 `active` 联系人在审核期间继续用于告警；老人端调用确认接口 `{ "approved": true }` 后才应用修改或删除。按 `order` 顺序升级呼叫。
 
-### 4.8 设备管理【第二阶段】
+### 4.9 设备管理【第二阶段】
 
 ```text
 GET   /api/v1/devices?elder_id=
@@ -409,7 +456,7 @@ DELETE /api/v1/devices/{device_id}    # 解绑，需二次确认
 
 设备状态细节（取流 Worker、队列深度）复用【已实现】`GET /api/v1/integrations/ys7/media/status` 诊断，不向 App 暴露凭证字段。
 
-### 4.9 守护设置管理【规划】
+### 4.10 守护设置管理【规划】
 
 ```text
 GET /api/v1/settings?elder_id=
@@ -431,7 +478,7 @@ Idempotency-Key: <UUID>
 
 `fall_sensitivity` 枚举：`low | medium | high`，映射到跌倒模块的持续时间与置信度阈值组合，具体映射表由跌倒模块设计补充。`PUT` 必须提交当前 `version`，成功后返回递增的新版本。
 
-### 4.10 数据看板统计【规划】
+### 4.11 数据看板统计【规划】
 
 ```text
 GET /api/v1/stats/events?elder_id=&days=30
@@ -440,7 +487,7 @@ GET /api/v1/stats/events?elder_id=&days=30
 `/stats/events` 按周/天返回分级别计数：`{ "buckets": [{ "period": "2026-W31", "reminder": 4, "warning": 1, "emergency": 0 }] }`。
 活动热力图没有稳定的持久化数据源，`/stats/activity` 移至第二阶段；情绪趋势统计随心理关怀模块一并暂缓。
 
-### 4.11 推送端点注册【规划】
+### 4.12 推送端点注册【规划】
 
 ```text
 POST   /api/v1/users/me/push-endpoints
