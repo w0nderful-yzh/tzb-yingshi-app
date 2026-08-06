@@ -4,6 +4,7 @@ from contextlib import suppress
 
 from app.infrastructure.event_queue import Ys7EventQueue
 from app.infrastructure.external.ys7.event_adapter import Ys7EventAdapter
+from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.visual_event_store import VisualEventStore
 
 logger = logging.getLogger(__name__)
@@ -16,10 +17,12 @@ class Ys7EventWorker:
         event_queue: Ys7EventQueue,
         adapter: Ys7EventAdapter,
         visual_event_store: VisualEventStore,
+        session_tracker: FraudSessionTracker | None = None,
     ) -> None:
         self._event_queue = event_queue
         self._adapter = adapter
         self._visual_event_store = visual_event_store
+        self._session_tracker = session_tracker
         self._task: asyncio.Task[None] | None = None
 
     @property
@@ -45,6 +48,8 @@ class Ys7EventWorker:
             try:
                 event = self._adapter.adapt(queued)
                 await self._visual_event_store.add(event)
+                if event.event_type == "phone_call" and self._session_tracker is not None:
+                    self._session_tracker.observe_phone_call(event.occurred_at)
             except Exception:
                 logger.exception(
                     "Failed to adapt YS7 signal",

@@ -16,14 +16,6 @@ interface ApiService {
     @GET("api/v1/users/me")
     suspend fun getMe(): ApiResponse<UserInfo>
 
-    /** 首页安全状态聚合（老人端） */
-    @GET("api/v1/safety/status")
-    suspend fun getSafetyStatus(): ApiResponse<SafetyStatus>
-
-    /** 一键紧急求助（老人端） */
-    @POST("api/v1/sos")
-    suspend fun postSos(@Body body: SosRequest): ApiResponse<SosResult>
-
     // ---------- 风险事件 ----------
 
     /**
@@ -42,13 +34,6 @@ interface ApiService {
     @GET("api/v1/events/{event_id}")
     suspend fun getEventDetail(@Path("event_id") eventId: String): ApiResponse<EventDetail>
 
-    /** 老人端告警确认：im_ok / need_help */
-    @POST("api/v1/events/{event_id}/confirm")
-    suspend fun confirmEvent(
-        @Path("event_id") eventId: String,
-        @Body body: ConfirmRequest
-    ): ApiResponse<EmptyData>
-
     /** 家属端处置：acknowledged | resolved | false_alarm */
     @PATCH("api/v1/events/{event_id}/status")
     suspend fun patchEventStatus(
@@ -56,9 +41,12 @@ interface ApiService {
         @Body body: StatusPatch
     ): ApiResponse<EmptyData>
 
-    /** 家属端一键回呼老人 */
-    @POST("api/v1/events/{event_id}/call")
-    suspend fun callElder(@Path("event_id") eventId: String): ApiResponse<EmptyData>
+    /** TODO 后端：向设备播报提醒或发起家属外呼，当前返回 501。 */
+    @POST("api/v1/events/{event_id}/intervention-reminder")
+    suspend fun sendInterventionReminder(
+        @Path("event_id") eventId: String,
+        @Body body: InterventionReminder
+    ): ApiResponse<EmptyData>
 
     // ---------- 设备 ----------
 
@@ -75,6 +63,15 @@ interface ApiService {
         @Path("device_id") deviceId: String
     ): ApiResponse<LiveSdkSession>
 
+    /** TODO 后端：获取事件时间点附近的萤石历史回放地址，当前返回 501。 */
+    @GET("api/v1/devices/{device_id}/history-playback")
+    suspend fun getHistoryPlayback(
+        @Path("device_id") deviceId: String,
+        @Query("elder_id") elderId: String? = null,
+        @Query("at") at: String? = null,
+        @Query("duration_seconds") durationSeconds: Int = 30
+    ): ApiResponse<HistoryPlayback>
+
     // ---------- 家属端 ----------
 
     @GET("api/v1/family/elders")
@@ -83,17 +80,4 @@ interface ApiService {
     @GET("api/v1/contacts")
     suspend fun getContacts(@Query("elder_id") elderId: String? = null): ApiResponse<ContactsData>
 
-    /** 事件分级别计数（近 N 天） */
-    @GET("api/v1/stats/events")
-    suspend fun getEventsStats(
-        @Query("elder_id") elderId: String? = null,
-        @Query("days") days: Int = 30
-    ): ApiResponse<EventsStatsData>
-
-    /** 24 小时活动热力（近 N 天平均） */
-    @GET("api/v1/stats/activity")
-    suspend fun getActivityStats(
-        @Query("elder_id") elderId: String? = null,
-        @Query("days") days: Int = 7
-    ): ApiResponse<ActivityData>
 }

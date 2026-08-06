@@ -30,26 +30,6 @@ data class UserInfo(
     val voice_assist_enabled: Boolean = true
 )
 
-@Serializable
-data class TodayStats(
-    val event_count: Int = 0,
-    val active_hours: Double = 0.0,
-    val call_screened: Int = 0
-)
-
-/** GET /safety/status 首页聚合 */
-@Serializable
-data class SafetyStatus(
-    val overall: String = "safe",         // safe | attention | danger
-    val overall_label: String = "一切正常",
-    val active_event_count: Int = 0,
-    val highest_active_level: String? = null,
-    val devices_online: Int = 0,
-    val devices_total: Int = 0,
-    val checked_at: String = "",
-    val today: TodayStats = TodayStats()
-)
-
 // ---------- 设备 ----------
 
 @Serializable
@@ -81,7 +61,21 @@ data class LiveSdkSession(
     val expires_in: Int = 300
 )
 
+@Serializable
+data class HistoryPlayback(
+    val url: String = "",
+    val protocol: String = "",
+    val start_at: String = "",
+    val expires_in: Int = 0
+)
+
 // ---------- 风险事件 ----------
+
+@Serializable
+data class EvidenceFrame(
+    val captured_at: String = "",
+    val image_url: String = ""
+)
 
 /** 告警级别：reminder 提醒 / warning 警告 / emergency 紧急 */
 @Serializable
@@ -94,7 +88,14 @@ data class RiskEvent(
     val device_id: String = "",
     val occurred_at: String = "",
     val status: String = "open",   // open | acknowledged | resolved | false_alarm
-    val evidence_image_url: String? = null
+    val evidence_image_url: String? = null,
+    val evidence_frames: List<EvidenceFrame> = emptyList(),
+    val location: String = "",
+    val fraud_scene: String? = null, // telecom | home_visit | unknown
+    val fraud_state: String? = null,
+    val fraud_state_index: Int? = null,
+    val fraud_state_label: String? = null,
+    val fraud_decision: String? = null
 )
 
 @Serializable
@@ -133,6 +134,16 @@ data class Escalation(
 )
 
 @Serializable
+data class FraudContext(
+    val scene: String = "unknown",
+    val state: String = "S0_NORMAL",
+    val state_index: Int = 0,
+    val state_label: String = "风险分析",
+    val decision: String = "observe",
+    val transition_reason: String = ""
+)
+
+@Serializable
 data class EventDetail(
     val event_id: String,
     val type: String,
@@ -141,33 +152,23 @@ data class EventDetail(
     val device_id: String = "",
     val occurred_at: String = "",
     val evidence_image_url: String? = null,
+    val evidence_frames: List<EvidenceFrame> = emptyList(),
+    val location: String = "",
     val analysis: Analysis = Analysis(),
     val notifications: List<NotificationRecord> = emptyList(),
-    val escalation: Escalation = Escalation()
+    val escalation: Escalation = Escalation(),
+    val fraud: FraudContext? = null
 )
-
-// ---------- 请求体 ----------
-
-@Serializable
-data class SosRequest(
-    val trigger: String = "long_press",
-    val occurred_at: String
-)
-
-@Serializable
-data class SosResult(
-    val event_id: String = "",
-    val status: String = "",
-    val notified_contacts: Int = 0
-)
-
-/** 老人端告警确认：im_ok 我没事 / need_help 我需要帮助 */
-@Serializable
-data class ConfirmRequest(val action: String)
 
 /** 家属端处置：acknowledged | resolved | false_alarm */
 @Serializable
 data class StatusPatch(val status: String, val note: String = "")
+
+@Serializable
+data class InterventionReminder(
+    val channel: String = "device_voice",
+    val message: String = "请暂停当前操作，家人正在联系您核实情况。"
+)
 
 /** 用于无业务返回体的接口（confirm / patch 等） */
 typealias EmptyData = JsonObject
@@ -198,20 +199,3 @@ data class ElderInfo(
 
 @Serializable
 data class EldersData(val elders: List<ElderInfo> = emptyList())
-
-// ---------- 数据看板统计 ----------
-
-@Serializable
-data class StatsBucket(
-    val period: String,
-    val reminder: Int = 0,
-    val warning: Int = 0,
-    val emergency: Int = 0
-)
-
-@Serializable
-data class EventsStatsData(val buckets: List<StatsBucket> = emptyList())
-
-/** 24 小时活动热力，0-1 归一化 */
-@Serializable
-data class ActivityData(val hours: List<Double> = emptyList())

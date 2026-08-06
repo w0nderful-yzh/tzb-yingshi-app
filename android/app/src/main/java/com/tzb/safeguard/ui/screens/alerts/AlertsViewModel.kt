@@ -10,13 +10,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 消息中心筛选条件 */
-enum class AlertFilter(val label: String, val level: String?, val status: String?) {
-    ALL("全部", null, null),
-    EMERGENCY("紧急", "emergency", null),
-    WARNING("警告", "warning", null),
-    REMINDER("提醒", "reminder", null),
-    DONE("已处理", null, "resolved")
+/** 风险趋势按介入状态筛选，不在一级信息中拆分诈骗场景。 */
+enum class AlertFilter(val label: String) {
+    ALL("全部"),
+    PREDICTION("预测"),
+    INTERVENTION("介入"),
+    SYSTEM("系统")
 }
 
 data class AlertsData(
@@ -42,12 +41,19 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            // 家属端必须显式传 elder_id（服务端校验绑定关系）
-            val elderId = if (Session.role == "family") Session.currentElderId else null
-            repo.getEvents(elderId = elderId, level = filter.level, status = filter.status)
+            repo.getEvents(elderId = Session.currentElderId)
                 .onSuccess { data ->
-                    val unread = data.events.count { it.status == "open" }
-                    _state.value = UiState.Success(AlertsData(filter, data.events, unread))
+                    val fraudEvents = data.events.filter { it.type == "fraud_suspected" }
+                    val visible = when (filter) {
+                        AlertFilter.ALL -> fraudEvents
+                        AlertFilter.PREDICTION -> fraudEvents.filter { it.status == "open" }
+                        AlertFilter.INTERVENTION -> fraudEvents.filter { it.status == "acknowledged" }
+                        AlertFilter.SYSTEM -> fraudEvents.filter {
+                            it.status == "resolved" || it.status == "false_alarm"
+                        }
+                    }
+                    val unread = fraudEvents.count { it.status == "open" }
+                    _state.value = UiState.Success(AlertsData(filter, visible, unread))
                 }
                 .onFailure { _state.value = UiState.Error(it.message ?: "加载失败") }
         }

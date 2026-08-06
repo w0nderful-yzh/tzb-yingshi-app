@@ -85,6 +85,49 @@ def _visual_evidence(
                 "used_for_transition": False,
             }
         )
+
+    person_events = [event for event in recent if event.event_type == "person_detected"]
+    if person_events:
+        ordered_people = sorted(person_events, key=lambda event: event.occurred_at)
+        first = ordered_people[0]
+        latest = ordered_people[-1]
+        first_ms = to_epoch_ms(first.occurred_at)
+        latest_ms = to_epoch_ms(latest.occurred_at)
+        sustained = len(ordered_people) >= 2 and latest_ms - first_ms >= 3_000
+        detected_people = latest.people_count
+        if detected_people is None:
+            detected_people = (
+                sum(
+                    1
+                    for box in latest.boxes
+                    if (box.label or "").lower() in {"person", "people", "human"}
+                )
+                or 1
+            )
+        evidence.append(
+            {
+                "evidence_id": f"ev-visual-{latest.source_event_id}-visitor",
+                "kind": "visitor_presence",
+                "stage": "context",
+                "strength": "weak",
+                "polarity": "supporting",
+                "source": "video",
+                "start_ms": first_ms,
+                "end_ms": latest_ms,
+                "text": f"连续视觉事件检测到人员出现，最近人数为 {detected_people}。",
+                "reason": (
+                    "连续人员事件可作为入户诈骗的访客情境。"
+                    if sustained
+                    else "单次人员事件只展示为场景事实，不推动风险升级。"
+                ),
+                "confidence": max(event.confidence or 0.5 for event in ordered_people),
+                "people_count": detected_people,
+                "visual_event_id": latest.source_event_id,
+                "image_url": latest.image_url,
+                "escalation_eligible": sustained,
+                "used_for_transition": sustained,
+            }
+        )
     return evidence
 
 

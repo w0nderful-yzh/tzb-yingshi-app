@@ -37,6 +37,9 @@ class MediaStatusData(BaseModel):
     queue_depth: int
     chunks_processed: int
     chunks_dropped: int
+    streaming_enabled: bool
+    partials_processed: int
+    partials_failed: int
     reconnect_attempts: int
     last_error: str | None
 
@@ -118,6 +121,9 @@ async def get_ys7_media_status(request: Request) -> ApiResponse[MediaStatusData]
             queue_depth=worker.queue_depth,
             chunks_processed=worker.chunks_processed,
             chunks_dropped=worker.chunks_dropped,
+            streaming_enabled=request.app.state.fraud_audio_service.streaming_enabled,
+            partials_processed=worker.partials_processed,
+            partials_failed=worker.partials_failed,
             reconnect_attempts=worker.reconnect_attempts,
             last_error=worker.last_error,
         ),
