@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${TZB_DB_NAME:-tzb_yingshi}
+      POSTGRES_USER: ${TZB_DB_USER:-app}
+      POSTGRES_PASSWORD: ${TZB_DB_PASSWORD:-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        INSTALL_SENSEVOICE: ${INSTALL_SENSEVOICE:-false}
+    environment:
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-development}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      APP_DATABASE_ENABLED: "true"
+      APP_DATABASE_URL: postgresql+psycopg://${TZB_DB_USER:-app}:${TZB_DB_PASSWORD:-change-me}@postgres:5432/${TZB_DB_NAME:-tzb_yingshi}
+      APP_DATABASE_ECHO: ${APP_DATABASE_ECHO:-false}
+      APP_DEMO_IDENTITY_ENABLED: "true"
+      APP_DEMO_ELDER_SUBJECT: ${APP_DEMO_ELDER_SUBJECT:-u-elder-001}
+      APP_DEMO_GUARDIAN_SUBJECT: ${APP_DEMO_GUARDIAN_SUBJECT:-u-family-001}
+      APP_SEED_DEMO: ${APP_SEED_DEMO:-true}
+      APP_YS7_SIGNAL_ENABLED: ${APP_YS7_SIGNAL_ENABLED:-false}
+      APP_YS7_WEBHOOK_TOKEN: ${APP_YS7_WEBHOOK_TOKEN:-}
+      APP_YS7_QUEUE_MAXSIZE: ${APP_YS7_QUEUE_MAXSIZE:-1000}
+      APP_YS7_RAW_EVENT_DIR: /app/backend/storage/ys7/raw
+      APP_YS7_MEDIA_ENABLED: ${APP_YS7_MEDIA_ENABLED:-false}
+      APP_YS7_APP_KEY: ${APP_YS7_APP_KEY:-}
+      APP_YS7_APP_SECRET: ${APP_YS7_APP_SECRET:-}
+      APP_YS7_ACCESS_TOKEN: ${APP_YS7_ACCESS_TOKEN:-}
+      APP_YS7_DEVICE_SERIAL: ${APP_YS7_DEVICE_SERIAL:-demo-camera-001}
+      APP_YS7_CHANNEL_NO: ${APP_YS7_CHANNEL_NO:-1}
+      APP_YS7_LIVE_PROTOCOL: ${APP_YS7_LIVE_PROTOCOL:-flv}
+      APP_YS7_LIVE_QUALITY: ${APP_YS7_LIVE_QUALITY:-2}
+      APP_YS7_MEDIA_QUEUE_MAXSIZE: ${APP_YS7_MEDIA_QUEUE_MAXSIZE:-4}
+      APP_YS7_VAD_MODE: ${APP_YS7_VAD_MODE:-2}
+      APP_YS7_ELDER_ALONE: ${APP_YS7_ELDER_ALONE:-false}
+      APP_SENSEVOICE_ENABLED: ${INSTALL_SENSEVOICE:-false}
+      APP_SENSEVOICE_MODEL: ${APP_SENSEVOICE_MODEL:-iic/SenseVoiceSmall}
+      APP_SENSEVOICE_DEVICE: ${APP_SENSEVOICE_DEVICE:-cpu}
+      APP_SENSEVOICE_MAX_CHUNK_BYTES: ${APP_SENSEVOICE_MAX_CHUNK_BYTES:-10485760}
+      APP_FRAUD_LLM_ENABLED: ${APP_FRAUD_LLM_ENABLED:-false}
+      APP_FRAUD_LLM_BASE_URL: ${APP_FRAUD_LLM_BASE_URL:-}
+      APP_FRAUD_LLM_API_KEY: ${APP_FRAUD_LLM_API_KEY:-}
+      APP_FRAUD_LLM_MODEL: ${APP_FRAUD_LLM_MODEL:-}
+      APP_FRAUD_LLM_TIMEOUT_SECONDS: ${APP_FRAUD_LLM_TIMEOUT_SECONDS:-10}
+      APP_FRAUD_LLM_ENABLE_THINKING: ${APP_FRAUD_LLM_ENABLE_THINKING:-false}
+      APP_FRAUD_LLM_QUEUE_MAXSIZE: ${APP_FRAUD_LLM_QUEUE_MAXSIZE:-32}
+      APP_FRAUD_LLM_TRIGGER_STATE_INDEX: ${APP_FRAUD_LLM_TRIGGER_STATE_INDEX:-2}
+      APP_FRAUD_LLM_MAX_TRANSCRIPT_CHARS: ${APP_FRAUD_LLM_MAX_TRANSCRIPT_CHARS:-6000}
+      APP_FRAUD_LLM_VISION_ENABLED: ${APP_FRAUD_LLM_VISION_ENABLED:-false}
+      APP_FRAUD_LLM_MAX_IMAGES: ${APP_FRAUD_LLM_MAX_IMAGES:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${TZB_BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - backend_storage:/app/backend/storage
+      - sensevoice_models:/root/.cache/modelscope
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  backend_storage:
+  sensevoice_models:
