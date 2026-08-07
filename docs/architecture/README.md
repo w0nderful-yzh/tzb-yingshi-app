@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-当前已落地 FastAPI 公共入口、配置、请求 ID、统一响应、异常处理、版本化路由、萤石模拟事件适配、萤石直播音轨拉流、SenseVoice 短音频块、防诈 Service/状态机和 PostgreSQL 风险事件写入。跌倒业务、多设备动态取流、统一事件查询与处置、WebSocket 和正式萤石云信令鉴权/解密仍未实现。
+当前已落地 FastAPI 公共入口、配置、请求 ID、统一响应、异常处理、版本化路由、萤石告警主动轮询与模拟事件适配、Android 前台服务连续音轨、SenseVoice/Paraformer、防诈状态机、PostgreSQL 风险事件写入和单进程 WebSocket 实时通知。跌倒业务、多设备动态取流、跨进程消息总线和正式萤石云推送鉴权/解密仍未实现。
 
 ## 已实现后端入口
 
@@ -20,8 +20,10 @@ app/main.py
 ## 萤石事件接收第一阶段
 
 ```text
-HTTP模拟推送
-   ↓ 共享令牌和消息结构校验
+萤石告警列表主动轮询 ──→ Ys7AlarmMapper
+                               ↓
+HTTP模拟推送 ────────────────→ 统一消息结构
+                               ↓
 Ys7SignalListener
    ├── EventDeduplicator
    ├── RawSignalStore
@@ -43,44 +45,50 @@ POST /api/v1/fraud/audio/chunks
               ↓
 规则 + 轻量分类器 + S0-S5 状态机
               ↓
-    RiskEventRepository → PostgreSQL risk_events
+    RiskEventRepository → PostgreSQL risk_events（事务提交）
+                              ↓
+                       RealtimeEventBroker
+                              ↓
+                    一次性票据 WebSocket → Android 通知
 ```
 
 `occurred_at` 是设备或云端产生事件的时间，`received_at` 是后端接收时间。视觉事件查询按前者排序，为后续按设备会话重放乱序证据做准备。
 
 当前使用内存队列、内存视觉事件仓库、内存活动防诈会话和磁盘原始消息；状态机生成的非 S0 风险快照已持久化到 PostgreSQL。原始消息可以用于排查和演示，但进程重启后尚不会自动扫描未消费文件；后续应将接收链路接入已有 Inbox/Visual Event 表并实现启动恢复。
 
-当前 HTTP 共享令牌只是正式签名协议到位前的开发保护措施。拿到萤石正式消息样例后，只替换 `external/ys7/` 中的鉴权、解密和解析代码，不改变统一视觉事件和防诈业务层。
+主动轮询使用 AppKey/AppSecret 或 accessToken 请求萤石告警列表，不要求后端具有公网入口。比赛配置每 5 秒轮询并回看 120 秒，设备事件发现延迟平均约 2.5 秒、最坏约 5 秒，使用 `alarmId` 幂等处理重叠结果。5 秒间隔若持续 24 小时会超过萤石个人版 1 万次/天额度，因此长期运行应改为 10 秒或切换正式消息回调。当前只把明确的人体、人脸、人数和通话类告警转换成统一视觉事件，未知类型保留在轮询状态中等待按真实样例适配。
+
+HTTP 共享令牌只是正式推送签名协议到位前的开发保护措施。拿到萤石正式消息样例后，只替换 `external/ys7/` 中的鉴权、解密和解析代码，不改变统一视觉事件和防诈业务层。
 
 SenseVoice 通过 `SpeechRecognizer` 端口与业务层隔离，FunASR 只存在于 `infrastructure/external/sensevoice/`。模型懒加载且推理串行化；API 使用工作线程调用同步模型，模型缺失或失败不会阻止健康检查、萤石视觉接收和已有转写 API。
 
-## 萤石直播音轨
+## 萤石直播音轨与持续守护
 
 ```text
-AppKey/AppSecret
+家属显式开启持续守护
       ↓
-Ys7ApiClient ── 获取/缓存 accessToken
+Android Ys7MonitorService（前台服务、静音、断线重连）
+      ↓ EZOpenSDK 解码 16 kHz mono PCM
+POST /devices/{device_id}/audio-pcm（1 秒传输批次）
       ↓
-获取标准直播地址（FLV / RTMP / HLS）
+AppPcmRelaySource（恢复为 20 ms 连续帧）
       ↓
-FfmpegPcmStreamSource
-      ↓ 16 kHz mono PCM，每 5 秒
-实时有界队列
-      ↓
-FraudAudioService → SenseVoice → S0-S5
+WebRTC VAD → Paraformer PARTIAL → SenseVoice FINAL → S0-S5
 ```
 
-Token、直播地址和设备验证码不得写入日志。媒体 Worker 每次重连重新获取直播地址，并采用 1–60 秒指数退避。当前仅处理音轨；视频诈骗证据仍优先来自萤石云算法事件，避免重复持续运行本地视觉模型。
+前台服务不依赖 Activity 或 Composable，用户返回桌面或锁屏后继续监听；用户从系统设置强制停止 App 后无法继续。Token、直播地址和设备验证码不得写入日志。当前仅处理音轨；视频诈骗证据仍优先来自萤石云算法事件，避免重复持续运行本地视觉模型。
+
+`RealtimeEventBroker` 当前是有界内存广播，符合 Compose 单 Uvicorn Worker 部署。多 Worker 或多实例部署前必须替换为跨进程消息总线。
 
 ## 数据库
 
 PostgreSQL 表结构、关系、索引、JSONB 边界和删除策略见 [PostgreSQL 数据库设计](database-schema.md)。数据库结构必须通过 Alembic 迁移维护，应用启动时不调用 `create_all`。
 
-## 规划结构
+## 当前主链路
 
 ```text
-Android
-   ↓ REST / WebSocket
+Android Ys7MonitorService
+   ↓ PCM / REST
 FastAPI API层
    ↓
 业务Service层
@@ -89,8 +97,10 @@ FastAPI API层
    └── 萤石适配器
    ↓
 统一风险事件中心
-   ├── PostgreSQL
-   └── WebSocket通知
+   ↓ 先提交
+PostgreSQL
+   ↓ 后广播
+RealtimeEventBroker → 一次性票据 WebSocket → Android 系统通知
 ```
 
 ## 架构原则

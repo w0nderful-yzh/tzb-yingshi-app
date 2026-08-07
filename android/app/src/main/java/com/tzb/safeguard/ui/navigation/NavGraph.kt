@@ -1,6 +1,7 @@
 package com.tzb.safeguard.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -38,7 +39,17 @@ inline fun <reified VM : ViewModel> appViewModel(crossinline factory: () -> VM):
     })
 
 @Composable
-fun AppNavHost(navController: NavHostController = rememberNavController()) {
+fun AppNavHost(
+    navController: NavHostController = rememberNavController(),
+    openEventId: String? = null,
+    onOpenEventConsumed: () -> Unit = {},
+) {
+    LaunchedEffect(openEventId) {
+        if (!openEventId.isNullOrBlank()) {
+            navController.navigate(Routes.alertDetail(openEventId)) { launchSingleTop = true }
+            onOpenEventConsumed()
+        }
+    }
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) { HomeScreen(navController) }
         composable(Routes.MONITOR) { MonitorScreen(navController) }

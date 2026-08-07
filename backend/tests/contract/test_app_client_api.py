@@ -7,6 +7,9 @@ def test_app_phase_one_routes_are_exposed() -> None:
     paths = app.openapi()["paths"]
 
     assert {
+        "/api/v1/auth/login",
+        "/api/v1/auth/me",
+        "/api/v1/auth/logout",
         "/api/v1/users/me",
         "/api/v1/safety/status",
         "/api/v1/sos",
@@ -18,12 +21,29 @@ def test_app_phase_one_routes_are_exposed() -> None:
         "/api/v1/devices",
         "/api/v1/devices/{device_id}/live-url",
         "/api/v1/devices/{device_id}/live-sdk-session",
+        "/api/v1/devices/{device_id}/audio-pcm",
         "/api/v1/devices/{device_id}/history-playback",
+        "/api/v1/ws/tickets",
         "/api/v1/contacts",
         "/api/v1/family/elders",
         "/api/v1/stats/events",
         "/api/v1/stats/activity",
     } <= set(paths)
+
+
+def test_app_business_routes_require_bearer_authentication() -> None:
+    app = create_app(Settings(environment="test", _env_file=None))
+    schema = app.openapi()
+
+    assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
+        "type": "http",
+        "scheme": "bearer",
+    }
+    assert schema["paths"]["/api/v1/auth/login"]["post"].get("security") is None
+    assert schema["paths"]["/api/v1/users/me"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/api/v1/ws/tickets"]["post"]["security"] == [{"HTTPBearer": []}]
+    parameters = schema["paths"]["/api/v1/users/me"]["get"].get("parameters", [])
+    assert all(item["name"] != "X-Demo-Role" for item in parameters)
 
 
 def test_app_mutations_require_idempotency_key() -> None:
@@ -56,9 +76,7 @@ def test_fraud_context_is_exposed_to_app_clients() -> None:
     assert "fraud" in schemas["EventDetailData"]["properties"]
     assert "evidence_frames" in schemas["RiskEventItem"]["properties"]
     assert "evidence_frames" in schemas["EventDetailData"]["properties"]
-    assert {"captured_at", "image_url"} <= set(
-        schemas["EvidenceFrameData"]["properties"]
-    )
+    assert {"captured_at", "image_url"} <= set(schemas["EvidenceFrameData"]["properties"])
     expected = {
         "scene",
         "state",

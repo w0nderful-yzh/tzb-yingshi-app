@@ -4,7 +4,7 @@
 
 本约束适用于本仓库中的 Android、FastAPI、防诈、跌倒、统一事件和萤石平台接入开发。当前团队按两人协作设计，目标是保证模块可以并行开发、独立降级并通过统一协议联调。
 
-主分支为 `master`。当前仓库已落地 FastAPI 基础骨架、萤石模拟事件接收和数据库首个迁移；文中其余接口和结构仍是后续实现必须遵守的契约，不代表功能已经完成。
+主分支为 `master`。当前仓库已落地 FastAPI、PostgreSQL、Android 家属端、萤石前台持续守护、防诈状态机和单进程实时告警。文中标为“规划”或“后续”的能力仍不代表已经完成。
 
 ## 2. 核心原则
 
@@ -15,6 +15,7 @@
 5. 共享接口、数据库和公共模块的修改必须由另一人审查。
 6. 不提交密钥、模型权重、真实老人数据和真实音视频。
 7. README、API契约和实现必须保持一致。
+8. 所有风险模块必须先提交统一风险事件，再由公共实时层广播；禁止模块直接向 Android 推送。
 
 ## 3. 模块边界
 
@@ -87,6 +88,7 @@ docs/architecture/
 
 - 只负责持久化；
 - 不包含算法、外部HTTP调用或风险等级判断。
+- 风险事件事务提交成功后，由公共 `RealtimeEventBroker` 广播统一事件；事务失败时禁止发送。
 
 ## 5. 统一风险事件
 
@@ -153,6 +155,29 @@ EventStatus: PENDING | CONFIRMED | FALSE_ALARM | RESOLVED
 - 云信令和 WebSocket 消息必须保留事件发生时间与接收时间；
 - 消费端必须处理重复、迟到、乱序、断线和重连；
 - 云信令监听收到消息后先入队，不在监听回调中执行耗时推理。
+
+### 8.1 所有风险模块必须遵守的告警链路
+
+防诈、跌倒、陌生人、久坐、离床和后续新增模块一律使用：
+
+```text
+Detector → 模块 Service → 统一 RiskEvent 写入 → PostgreSQL 提交成功
+                                              ↓
+                                  RealtimeEventBroker
+                                              ↓
+                                  WS /api/v1/ws/events
+                                              ↓
+                                      Android 系统通知
+```
+
+- Detector 不得调用 WebSocket、通知 SDK 或 Android 专用接口；
+- 模块不得定义自己的 WebSocket 路由、消息外层或风险等级；
+- `source + source_event_id` 必须稳定，重复分析只能更新同一事件；
+- 广播只能发生在数据库事务成功之后，消息中的 `event_id` 必须是数据库真实主键；
+- 公共实时消息统一使用 `risk_event.upserted`，事件类型通过 `event.type` 区分；
+- 客户端必须按 `event_id` 幂等展示，断线重连后通过 `GET /events?status=open` 补齐；
+- 当前 `RealtimeEventBroker` 只支持单后端进程。启用多 Worker 前必须换成 Redis Pub/Sub、PostgreSQL LISTEN/NOTIFY 或等价跨进程总线，禁止在多进程下继续使用内存广播却宣称可靠；
+- 新模块合入前必须增加“事务后广播、越权用户收不到、重复事件不新增”的测试。
 
 ## 9. 配置与密钥
 
@@ -223,6 +248,10 @@ PR只有在CI通过、另一人审查、文档同步、核心测试通过且不�
 - 后端地址不得硬编码在Kotlin文件中；
 - 网络操作必须有加载、成功和失败状态；
 - 风险等级必须同时使用文字和图标表达，不能只依赖颜色。
+- 持续设备采集只能放在前台服务或独立取流网关，禁止绑定 Composable、Activity 或具体页面生命周期；
+- 页面关闭后仍需运行的能力必须提供常驻通知、显式启停、断线重连和可见状态；
+- WebSocket 必须先通过 Bearer 鉴权接口换取一次性短票据，禁止把 Bearer Token 放进 URL；
+- 所有模块复用公共风险通知通道和风险详情入口，不得各自创建后台长连接。
 
 ## 12. 测试要求
 
@@ -240,7 +269,7 @@ uv run pytest
 ./gradlew assembleDebug
 ```
 
-后端命令当前可执行；Android 工程尚未创建，因此 Gradle 命令暂不可执行。
+后端与 Android 命令均必须可执行。仓库当前 Android 工程使用 Gradle Wrapper，实际检查时从 `android/` 目录执行 `./gradlew`。
 
 ## 13. Definition of Done
 

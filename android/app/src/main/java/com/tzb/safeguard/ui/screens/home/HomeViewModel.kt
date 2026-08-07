@@ -37,15 +37,18 @@ class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
         viewModelScope.launch {
             _state.value = UiState.Loading
             val elders = repo.getElders().getOrElse { return@launch fail(it) }
-            val devices = repo.getDevices(Session.currentElderId).getOrElse { return@launch fail(it) }
-            val events = repo.getEvents(elderId = Session.currentElderId).getOrElse {
+            val elder = elders.elders.firstOrNull()
+                ?: return@launch fail(IllegalStateException("当前账号还没有绑定老人"))
+            Session.currentElderId = elder.elder_id
+            val devices = repo.getDevices(elder.elder_id).getOrElse { return@launch fail(it) }
+            val events = repo.getEvents(elderId = elder.elder_id).getOrElse {
                 return@launch fail(it)
             }
             val fraudWarnings = events.events.filter { it.type == "fraud_suspected" }
             val selected = devices.devices.firstOrNull { it.online } ?: devices.devices.firstOrNull()
             _state.value = UiState.Success(
                 HomeData(
-                    elder = elders.elders.firstOrNull(),
+                    elder = elder,
                     devices = devices.devices,
                     selectedDevice = selected,
                     streamLoading = selected != null,
@@ -76,7 +79,11 @@ class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
             return
         }
         viewModelScope.launch {
-            repo.getHistoryPlayback(device.device_id, Session.currentElderId)
+            val elderId = repo.getCurrentElderId().getOrElse {
+                _notice.value = it.message ?: "当前账号还没有绑定老人"
+                return@launch
+            }
+            repo.getHistoryPlayback(device.device_id, elderId)
                 .onSuccess { _notice.value = "历史回放地址已获取" }
                 .onFailure { _notice.value = "历史回放正在接入萤石云端能力，当前暂不可用" }
         }

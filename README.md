@@ -11,12 +11,12 @@
 - Android 工程已收敛为家属端单角色，真实接口和萤石原生 H.264/H.265 直播已经接通；
 - 已创建 FastAPI 应用工厂、配置、请求 ID、统一响应和异常处理；
 - 已提供 `GET /api/v1/health` 和后端自动化测试；
-- 已实现萤石事件的模拟契约接收、原文落盘、去重、异步队列和统一视觉事件查询；
-- 尚未取得正式萤石 Topic、签名/解密规则和完整消息样例，因此当前接收协议不能视为正式平台对接；
+- 已实现萤石告警列表主动轮询、模拟契约接收、原文落盘、去重、异步队列和统一视觉事件查询；
+- 主动轮询不依赖公网回调；尚未取得正式萤石 Topic、签名/解密规则和完整消息样例，因此 HTTP 推送协议仍不能视为正式平台对接；
 - 已创建 PostgreSQL 数据库结构、SQLAlchemy Model 和 Alembic 首个迁移；
 - 防诈已采用“规则 + 校准轻量分类器 + S0-S5 状态机 + 异步 LLM 复核”四层决策，LLM 不作为首判和唯一报警依据；
 - 防诈风险事件和防诈会话已接 PostgreSQL Repository，会话支持重启恢复；萤石统一视觉事件和原始消息消费仍使用内存/文件实现；
-- 已接入萤石标准直播地址、Android 原生直播、FFmpeg 连续音轨、WebRTC VAD、Paraformer 600 ms 流式转写和 SenseVoiceSmall 终句复核；正式云信令协议与 WebSocket 尚待官方消息字段确认；
+- 已接入萤石标准直播地址、Android 原生直播和前台持续守护；页面关闭后由服务静音转发 EZOpenSDK PCM，随后进入 WebRTC VAD、Paraformer 600 ms 流式转写和 SenseVoiceSmall 终句复核；风险事件事务提交后通过一次性票据 WebSocket 推送系统通知；
 - 当前产品范围只实现防诈，跌倒和心理关怀不展示模拟结果；
 - 尚未提供任何准确率、召回率或实时性结论。
 
@@ -72,13 +72,13 @@ FastAPI 是唯一后端入口。Android 不直接调用算法脚本、不直接�
 | Android | Kotlin、Jetpack Compose、MVVM | 已落地首版，防诈交互重构中 |
 | 后端 | FastAPI、Pydantic | 已落地基础骨架 |
 | 数据库 | PostgreSQL、SQLAlchemy 2.x、Alembic | 已落地结构和迁移 |
-| 实时通知 | WebSocket | 规划 |
+| 实时通知 | 一次性票据 WebSocket、Android 系统通知 | 已落地单进程实时推送 |
 | Python依赖 | uv | 已落地 |
 | 测试 | Pytest、Android Unit Test | 后端已落地基础契约测试 |
-| 摄像头接入 | 萤石设备能力、AI服务和云信令 | 直播已落地，正式云信令待确认 |
+| 摄像头接入 | 萤石设备能力、AI服务和云信令 | 直播与告警主动轮询已落地，正式推送待确认 |
 | 防诈推理 | 规则、校准字符 TF-IDF、S0-S5、LLM 复核 | 已落地四层决策 |
 | 语音识别 | Paraformer Streaming、SenseVoiceSmall、FunASR | 已落地流式部分转写与终句复核 |
-| 媒体取流 | 萤石直播地址、FFmpeg、WebRTC VAD | 已落地单设备连续音轨 |
+| 媒体取流 | Android 前台服务、EZOpenSDK PCM、FFmpeg、WebRTC VAD | 已落地单设备持续音轨；强制停止 App 后终止 |
 
 新增依赖或正式落地规划技术时，必须同步更新本文档和对应架构决策。
 
@@ -130,6 +130,8 @@ uv run uvicorn app.main:app --reload
 - OpenAPI 文档：`http://127.0.0.1:8000/docs`
 - ReDoc 文档：`http://127.0.0.1:8000/redoc`
 
+本地 Demo 种子会创建可配置的登录账号，默认家属端账号为 `guardian / guardian123`。姓名、账号和密码均可通过根目录 `.env` 的 `APP_DEMO_GUARDIAN_*`、`APP_DEMO_ELDER_*` 配置修改；App 页面从登录用户和守护关系读取姓名，不再使用客户端固定姓名。
+
 后端提交前检查：
 
 ```bash
@@ -171,7 +173,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-SenseVoice 会显著增大镜像体积，因此默认不安装。需要实时语音识别时，在 `.env` 中设置 `INSTALL_SENSEVOICE=true`，同时按下文配置萤石媒体参数。Compose 内的数据库地址由 `TZB_DB_NAME`、`TZB_DB_USER` 和 `TZB_DB_PASSWORD` 生成，不使用宿主机的 `APP_DATABASE_URL`。
+SenseVoice 会显著增大镜像体积，因此默认不安装。需要实时语音识别时，在 `.env` 中设置 `INSTALL_SENSEVOICE=true`，同时按下文配置萤石媒体参数。Docker 镜像固定使用同版本的 CPU-only Torch/Torchaudio，不下载 NVIDIA CUDA 运行时；Compose 内的数据库地址由 `TZB_DB_NAME`、`TZB_DB_USER` 和 `TZB_DB_PASSWORD` 生成，不使用宿主机的 `APP_DATABASE_URL`。
 
 停止服务不会删除数据；如需连同本地 Docker 数据卷一起重置，可执行：
 
@@ -207,6 +209,31 @@ curl -X POST http://127.0.0.1:8000/api/v1/integrations/ys7/events \
 ```
 
 统一视觉事件通过 `GET /api/v1/fraud/visual-events` 查询。原始消息默认写入 `backend/storage/ys7/raw/`，该目录不提交 Git。
+
+### 主动查询萤石告警
+
+没有公网回调地址时，后端可以直接查询萤石设备告警列表：
+
+```dotenv
+APP_YS7_SIGNAL_ENABLED=true
+APP_YS7_ALARM_POLL_ENABLED=true
+APP_YS7_ALARM_POLL_INTERVAL_SECONDS=5
+APP_YS7_ALARM_POLL_LOOKBACK_SECONDS=120
+APP_YS7_ALARM_POLL_PAGE_SIZE=50
+APP_YS7_APP_KEY=your-app-key
+APP_YS7_APP_SECRET=your-app-secret
+APP_YS7_DEVICE_SERIAL=your-device-serial
+```
+
+比赛和短时演示默认每 5 秒查询一次，设备告警发现延迟平均约 2.5 秒、最坏约 5 秒；仍回看最近 120 秒，并按萤石 `alarmId` 去重。明确的人体感应、人脸或文本标识的人形告警会转换为 `person_detected`；明确包含打电话或通话语义的 AI 告警转换为 `phone_call`；普通移动侦测不会冒充人体检测。
+
+萤石个人版当前峰值额度为 20 次/分钟、总额度为 1 万次/天。5 秒轮询为 12 次/分钟，适合比赛但若全天运行会达到 17,280 次/天；个人版 24 小时运行时应将间隔改为 10 秒，或使用正式消息回调。通过状态接口观察实际运行结果：
+
+```bash
+curl http://127.0.0.1:8000/api/v1/integrations/ys7/status
+```
+
+重点检查 `poller_running`、`polls_completed`、`alarms_seen`、`signals_accepted`、`last_ignored_alarm_type` 和 `polling_last_error`。若设备返回了尚未适配的类型，先根据 `last_ignored_alarm_type` 和后端日志补充映射，不要直接把所有移动告警当作有人。
 
 ### 防诈转写分析
 
@@ -255,6 +282,7 @@ APP_STREAMING_ASR_HOTWORDS=验证码 安全账户 屏幕共享 远程控制 涉�
 
 ```dotenv
 APP_YS7_MEDIA_ENABLED=true
+APP_YS7_MEDIA_SOURCE=app_relay
 APP_YS7_APP_KEY=your-app-key
 APP_YS7_APP_SECRET=your-app-secret
 APP_YS7_DEVICE_SERIAL=your-device-serial
@@ -264,9 +292,13 @@ APP_YS7_LIVE_QUALITY=2
 APP_YS7_ELDER_ALONE=false
 ```
 
-也可仅配置 `APP_YS7_ACCESS_TOKEN`，但固定 Token 过期后需要人工更新；配置 AppKey/AppSecret 时，后端会自动获取并缓存 Token。启动后通过 `GET /api/v1/integrations/ys7/media/status` 查看连接、重连、队列和已处理音频块状态。
+`app_relay` 是当前 C6c 的推荐配置：标准 FLV/HLS/RTMP 地址没有音轨时，用户在 App“我的”页显式开启持续守护，Android 前台服务从 EZOpenSDK 取得解码后的 16 kHz 单声道 PCM，每 1 秒向鉴权接口 `POST /api/v1/devices/{device_id}/audio-pcm` 发送一次。该 1 秒仅是网络传输批次，不是识别切句；后端仍把数据还原为连续 20 ms 帧，并由 VAD 按自然停顿切句。手机扬声器保持静音，不影响 PCM 转发。
 
-媒体 Worker 获取萤石直播地址后，通过 FFmpeg 只解码音轨为 16 kHz 单声道 PCM。WebRTC VAD 按自然停顿生成语音片段：连续语音 200 ms 起段、静音 700 ms 收段，前后各保留 300 ms；连续讲话达到 10 秒时强制切分，并为下一段重叠保留 1 秒。讲话期间 Paraformer 每 600 ms 更新一次 `PARTIAL` 转写，部分结果最多推动到 S2 且不写告警；自然停顿后 SenseVoice 对完整语句给出 `FINAL` 转写和语言、情绪、声音事件标签，再替换同一条部分证据并允许进入 S3-S5。重叠终句按绝对时间和文本相似度去重。音频不落盘；有界队列积压时丢弃最旧任务，避免告警延迟持续累积。
+持续守护不依赖直播页面：返回桌面、切换页面或锁屏后仍运行，并显示不可静默隐藏的常驻状态通知。用户从系统设置强制停止 App 后服务会终止；当前 Android 平台限制下不得宣称强制停止后仍可运行。
+
+若某个设备的云直播地址已确认包含 AAC 音轨，可改为 `APP_YS7_MEDIA_SOURCE=cloud`，由后端 FFmpeg 直接解码，此模式不依赖 App 在线。也可仅配置 `APP_YS7_ACCESS_TOKEN`，但固定 Token 过期后需要人工更新；配置 AppKey/AppSecret 时，后端会自动获取并缓存 Token。启动后通过 `GET /api/v1/integrations/ys7/media/status` 查看 `source`、连接、重连、队列和已处理语音片段状态。
+
+媒体 Worker 统一接收 16 kHz 单声道 PCM。WebRTC VAD 按自然停顿生成语音片段：连续语音 200 ms 起段、静音 700 ms 收段，前后各保留 300 ms；连续讲话达到 10 秒时强制切分，并为下一段重叠保留 1 秒。讲话期间 Paraformer 每 600 ms 更新一次 `PARTIAL` 转写，部分结果最多推动到 S2 且不写告警；自然停顿后 SenseVoice 对完整语句给出 `FINAL` 转写和语言、情绪、声音事件标签，再替换同一条部分证据并允许进入 S3-S5。重叠终句按绝对时间和文本相似度去重。音频不落盘；有界队列积压时丢弃最旧任务，避免告警延迟持续累积。
 
 防诈会话不是进程级永久会话：第一段有效语音或新的 `phone_call` 事件创建会话，连续静音 30 秒或会话运行满 10 分钟后，下一段语音创建新会话。新会话开始时旧会话持久化为 `CLOSED`。
 

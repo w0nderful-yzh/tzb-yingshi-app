@@ -1,5 +1,10 @@
 package com.tzb.safeguard.ui.screens.profile
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -11,11 +16,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import androidx.core.content.ContextCompat
 import com.tzb.safeguard.ServiceLocator
+import com.tzb.safeguard.data.media.MonitorServiceStatus
+import com.tzb.safeguard.data.media.Ys7MonitorService
 import com.tzb.safeguard.data.model.Contact
 import com.tzb.safeguard.data.model.Device
 import com.tzb.safeguard.ui.components.*
@@ -33,6 +42,24 @@ fun ProfileScreen(
     vm: ProfileViewModel = appViewModel { ProfileViewModel(ServiceLocator.repository) }
 ) {
     val state by vm.state.collectAsState()
+    val monitorStatus by Ys7MonitorService.status.collectAsState()
+    val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) Ys7MonitorService.start(context)
+    }
+    val startMonitor = {
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            Ys7MonitorService.start(context)
+        } else {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     Scaffold(
         modifier = Modifier.statusBarsPadding(),
         bottomBar = {
@@ -92,10 +119,70 @@ fun ProfileScreen(
                         }
                     }
 
+                    item {
+                        MonitorServiceCard(
+                            status = monitorStatus,
+                            onStart = startMonitor,
+                            onStop = { Ys7MonitorService.stop(context) },
+                        )
+                    }
+
                     item { SettingsCard() }
+
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                Ys7MonitorService.stop(context)
+                                vm.logout()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Filled.Logout, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("退出登录")
+                        }
+                    }
 
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MonitorServiceCard(
+    status: MonitorServiceStatus,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    AppCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.HealthAndSafety,
+                contentDescription = null,
+                tint = if (status.enabled) SafeGreen else TextSecondary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("持续守护", style = MaterialTheme.typography.titleLarge)
+                Text(status.detail, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(onClick = if (status.enabled) onStop else onStart) {
+                Text(if (status.enabled) "停止" else "开启")
+            }
+        }
+        if (status.enabled) {
+            Spacer(Modifier.height(10.dp))
+            CapabilityRow(
+                "摄像头音频",
+                if (status.mediaConnected) "监听中" else "连接中",
+                if (status.mediaConnected) SafeGreen else WarnAmber,
+            )
+            CapabilityRow(
+                "实时告警",
+                if (status.alertsConnected) "已连接" else "重连中",
+                if (status.alertsConnected) SafeGreen else WarnAmber,
+            )
         }
     }
 }

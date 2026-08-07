@@ -41,7 +41,11 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            repo.getEvents(elderId = Session.currentElderId)
+            val elderId = repo.getCurrentElderId().getOrElse {
+                _state.value = UiState.Error(it.message ?: "加载失败")
+                return@launch
+            }
+            repo.getEvents(elderId = elderId)
                 .onSuccess { data ->
                     val fraudEvents = data.events.filter { it.type == "fraud_suspected" }
                     val visible = when (filter) {

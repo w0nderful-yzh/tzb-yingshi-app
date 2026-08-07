@@ -125,6 +125,51 @@ async def test_static_access_token_skips_token_exchange() -> None:
 
 
 @pytest.mark.asyncio
+async def test_device_alarm_list_uses_expected_query_window() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/alarm/device/list")
+        form = parse_qs(request.content.decode())
+        assert form == {
+            "accessToken": ["static-token"],
+            "deviceSerial": ["camera-01"],
+            "startTime": ["1700000000000"],
+            "endTime": ["1700000120000"],
+            "status": ["2"],
+            "pageStart": ["0"],
+            "pageSize": ["50"],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "code": "200",
+                "data": [
+                    {
+                        "alarmId": "alarm-01",
+                        "alarmType": 10000,
+                        "alarmStart": "2026-08-07 12:00:00",
+                    }
+                ],
+            },
+        )
+
+    client = Ys7ApiClient(
+        app_key=None,
+        app_secret=None,
+        access_token="static-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    alarms = await client.list_device_alarms(
+        device_serial="camera-01",
+        start_time_ms=1_700_000_000_000,
+        end_time_ms=1_700_000_120_000,
+        page_size=50,
+    )
+
+    assert alarms[0]["alarmId"] == "alarm-01"
+
+
+@pytest.mark.asyncio
 async def test_ys7_error_exposes_only_error_code() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"code": "20014", "msg": "device offline"})

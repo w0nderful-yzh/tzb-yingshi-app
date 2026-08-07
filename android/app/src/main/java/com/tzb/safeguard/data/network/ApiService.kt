@@ -1,6 +1,7 @@
 package com.tzb.safeguard.data.network
 
 import com.tzb.safeguard.data.model.*
+import okhttp3.RequestBody
 import retrofit2.http.*
 
 /**
@@ -11,6 +12,15 @@ import retrofit2.http.*
 interface ApiService {
 
     // ---------- 通用 ----------
+
+    @POST("api/v1/auth/login")
+    suspend fun login(@Body body: LoginRequest): ApiResponse<LoginData>
+
+    @POST("api/v1/auth/logout")
+    suspend fun logout(): ApiResponse<EmptyData>
+
+    @POST("api/v1/ws/tickets")
+    suspend fun createWebSocketTicket(): ApiResponse<WebSocketTicketData>
 
     /** 当前用户信息（老人端/家属端通用） */
     @GET("api/v1/users/me")
@@ -62,6 +72,15 @@ interface ApiService {
     suspend fun getLiveSdkSession(
         @Path("device_id") deviceId: String
     ): ApiResponse<LiveSdkSession>
+
+    /** 将 EZOpenSDK 解码后的 16 kHz 单声道 PCM 转发给后端实时 VAD。 */
+    @Headers("Content-Type: application/octet-stream")
+    @POST("api/v1/devices/{device_id}/audio-pcm")
+    suspend fun relayCameraAudioPcm(
+        @Path("device_id") deviceId: String,
+        @Header("X-Audio-Sample-Rate") sampleRate: Int,
+        @Body pcm: RequestBody,
+    ): ApiResponse<EmptyData>
 
     /** TODO 后端：获取事件时间点附近的萤石历史回放地址，当前返回 501。 */
     @GET("api/v1/devices/{device_id}/history-playback")

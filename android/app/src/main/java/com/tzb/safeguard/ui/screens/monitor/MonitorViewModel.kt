@@ -30,7 +30,11 @@ class MonitorViewModel(private val repo: SafeRepository) : ViewModel() {
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            val devices = repo.getDevices(Session.currentElderId).getOrElse {
+            val elderId = repo.getCurrentElderId().getOrElse {
+                _state.value = UiState.Error(it.message ?: "加载失败")
+                return@launch
+            }
+            val devices = repo.getDevices(elderId).getOrElse {
                 _state.value = UiState.Error(it.message ?: "加载失败")
                 return@launch
             }
