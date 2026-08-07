@@ -21,6 +21,51 @@ data class ApiResponse<T>(
 // ---------- 用户 / 首页 ----------
 
 @Serializable
+data class LoginRequest(
+    val login_name: String,
+    val password: String,
+)
+
+@Serializable
+data class AuthUser(
+    val user_id: String,
+    val role: String,
+    val name: String,
+)
+
+@Serializable
+data class LoginData(
+    val access_token: String,
+    val token_type: String = "bearer",
+    val expires_at: String,
+    val user: AuthUser,
+)
+
+@Serializable
+data class WebSocketTicketData(
+    val ticket: String,
+    val expires_in: Int = 60,
+)
+
+@Serializable
+data class RealtimeEnvelope(
+    val type: String,
+    val event: RealtimeRiskEvent? = null,
+)
+
+@Serializable
+data class RealtimeRiskEvent(
+    val event_id: String,
+    val type: String,
+    val level: String,
+    val title: String,
+    val summary: String,
+    val device_id: String = "",
+    val occurred_at: String = "",
+    val status: String = "open",
+)
+
+@Serializable
 data class UserInfo(
     val user_id: String = "",
     val role: String = "elder",           // elder | family

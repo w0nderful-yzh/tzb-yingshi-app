@@ -1,20 +1,40 @@
 package com.tzb.safeguard
 
 import android.app.Application
+import com.tzb.safeguard.data.auth.AuthStore
 import com.tzb.safeguard.data.network.NetworkModule
 import com.tzb.safeguard.data.repository.SafeRepository
+import okhttp3.OkHttpClient
 
 /**
  * 轻量服务定位器：不引入 Hilt，Demo 阶段手动装配，降低接入成本。
  */
 object ServiceLocator {
-    val repository: SafeRepository by lazy { SafeRepository(NetworkModule.apiService) }
+    lateinit var authStore: AuthStore
+        private set
+    lateinit var repository: SafeRepository
+        private set
+    lateinit var httpClient: OkHttpClient
+        private set
+
+    fun initialize(application: Application) {
+        authStore = AuthStore(application)
+        httpClient = NetworkModule.createHttpClient(authStore)
+        repository = SafeRepository(
+            NetworkModule.createApiService(httpClient),
+            authStore,
+        )
+    }
 }
 
-/** 当前为家属端单角色；联调期固定守护一位老人。 */
+/** 当前为家属端单角色；登录后从绑定关系选择首位老人。 */
 object Session {
-    const val role: String = "family"
-    var currentElderId: String = "u-elder-001"   // 家属端当前查看的老人（联调期固定 1 位）
+    var currentElderId: String? = null
 }
 
-class SafeGuardApp : Application()
+class SafeGuardApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        ServiceLocator.initialize(this)
+    }
+}

@@ -23,6 +23,8 @@ class MockInterceptor : Interceptor {
 
         val body = when {
             // ---------- 通用 ----------
+            path == "/api/v1/auth/login" && method == "POST" -> ok(LOGIN_JSON)
+            path == "/api/v1/auth/logout" && method == "POST" -> ok("{}")
             path == "/api/v1/users/me" -> ok(USER_JSON)
 
             // ---------- 事件 ----------
@@ -60,8 +62,13 @@ class MockInterceptor : Interceptor {
         http to """{"code":$code,"message":"$msg","data":null,"request_id":"req_mock"}"""
 
     companion object {
+        private const val LOGIN_JSON = """
+            {"access_token":"mock-access-token","token_type":"bearer",
+             "expires_at":"2026-08-13T10:00:00+08:00",
+             "user":{"user_id":"u-family-001","role":"family","name":"演示家属"}}"""
+
         private const val USER_JSON = """
-            {"user_id":"u-family-001","role":"family","name":"张伟",
+            {"user_id":"u-family-001","role":"family","name":"演示家属",
              "bound_family_count":0,"font_size":"large","voice_assist_enabled":false}"""
 
         private const val DEVICES_JSON = """
@@ -104,14 +111,14 @@ class MockInterceptor : Interceptor {
 
         private const val CONTACTS_JSON = """
             {"contacts":[
-              {"order":1,"name":"张伟","relation":"son","phone":"138****6688","channels":["push","sms","call"]},
-              {"order":2,"name":"张莉","relation":"daughter","phone":"139****2233","channels":["push","sms"]},
-              {"order":3,"name":"刘姐（社区网格员）","relation":"community","phone":"0571-****120","channels":["call"]}
+              {"order":1,"name":"家属一","relation":"son","phone":"138****6688","channels":["push","sms","call"]},
+              {"order":2,"name":"家属二","relation":"daughter","phone":"139****2233","channels":["push","sms"]},
+              {"order":3,"name":"社区联系人","relation":"community","phone":"0571-****120","channels":["call"]}
             ]}"""
 
         private const val ELDERS_JSON = """
             {"elders":[
-              {"elder_id":"u-elder-001","name":"王秀兰","relation":"son","overall":"danger",
+              {"elder_id":"u-elder-001","name":"演示老人","relation":"son","overall":"danger",
                "last_active_at":"2026-08-04T16:33:00+08:00","pending_event_count":1}
             ]}"""
 
