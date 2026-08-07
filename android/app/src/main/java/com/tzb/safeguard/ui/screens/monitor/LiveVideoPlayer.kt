@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,34 +39,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.tzb.safeguard.data.media.Ys7SdkRuntime
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.ui.theme.WarnRed
 import com.videogo.errorlayer.ErrorInfo
 import com.videogo.exception.ErrorCode
 import com.videogo.openapi.EZConstants.EZRealPlayConstants
-import com.videogo.openapi.EZOpenSDK
 import com.videogo.openapi.EZPlayer
-
-private object Ys7SdkRuntime {
-    private var initializedAppKey: String? = null
-
-    @Synchronized
-    fun configure(application: Application, session: LiveSdkSession): EZOpenSDK {
-        if (initializedAppKey != session.app_key) {
-            if (initializedAppKey != null) {
-                EZOpenSDK.finiLib()
-            }
-            // SDK 调试日志会包含 AccessToken，所有构建均必须关闭。
-            EZOpenSDK.showSDKLog(false)
-            EZOpenSDK.enableP2P(false)
-            check(EZOpenSDK.initLib(application, session.app_key)) {
-                "萤石直播组件初始化失败"
-            }
-            initializedAppKey = session.app_key
-        }
-        return EZOpenSDK.getInstance().also { it.setAccessToken(session.access_token) }
-    }
-}
+import org.MediaPlayer.PlayM4.Player
 
 @Composable
 fun LiveVideoPlayer(
@@ -190,6 +171,7 @@ private fun Ys7SurfacePlayer(
     if (pair == null) return
 
     val (sdk, player) = pair
+    val currentMuted by rememberUpdatedState(muted)
     val surfaceView = remember(session) {
         SurfaceView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -202,7 +184,15 @@ private fun Ys7SurfacePlayer(
     val handler = remember(session) {
         Handler(Looper.getMainLooper()) { message ->
             when (message.what) {
-                EZRealPlayConstants.MSG_REALPLAY_PLAY_SUCCESS -> onPlaying()
+                EZRealPlayConstants.MSG_REALPLAY_PLAY_SUCCESS -> {
+                    val audioEngine = Player.getInstance()
+                    player.openSound()
+                    audioEngine.adjustWaveAudio(
+                        player.playPort,
+                        if (currentMuted) Player.VOLUME_MUTE else Player.VOLUME_DEFAULT,
+                    )
+                    onPlaying()
+                }
                 EZRealPlayConstants.MSG_REALPLAY_PLAY_FAIL -> {
                     val errorInfo = message.obj as? ErrorInfo
                     val errorCode = errorInfo?.errorCode
@@ -221,7 +211,13 @@ private fun Ys7SurfacePlayer(
     }
 
     LaunchedEffect(player, muted) {
-        if (muted) player.closeSound() else player.openSound()
+        player.openSound()
+        if (player.playPort >= 0) {
+            Player.getInstance().adjustWaveAudio(
+                player.playPort,
+                if (muted) Player.VOLUME_MUTE else Player.VOLUME_DEFAULT,
+            )
+        }
     }
 
     DisposableEffect(player, surfaceView, lifecycleOwner) {

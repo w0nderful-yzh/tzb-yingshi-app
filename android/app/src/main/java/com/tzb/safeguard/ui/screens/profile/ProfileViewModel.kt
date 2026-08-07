@@ -2,7 +2,6 @@ package com.tzb.safeguard.ui.screens.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tzb.safeguard.Session
 import com.tzb.safeguard.data.model.Contact
 import com.tzb.safeguard.data.model.Device
 import com.tzb.safeguard.data.model.UserInfo
@@ -29,11 +28,16 @@ class ProfileViewModel(private val repo: SafeRepository) : ViewModel() {
         viewModelScope.launch {
             _state.value = UiState.Loading
             val user = repo.getMe().getOrElse { return@launch fail(it) }
+            val elderId = repo.getCurrentElderId().getOrElse { return@launch fail(it) }
             // 联系人与设备失败不阻断整页：降级为空列表，由页面展示空态
-            val contacts = repo.getContacts(Session.currentElderId).getOrNull()?.contacts ?: emptyList()
-            val devices = repo.getDevices(Session.currentElderId).getOrNull()?.devices ?: emptyList()
+            val contacts = repo.getContacts(elderId).getOrNull()?.contacts ?: emptyList()
+            val devices = repo.getDevices(elderId).getOrNull()?.devices ?: emptyList()
             _state.value = UiState.Success(ProfileData(user, contacts, devices))
         }
+    }
+
+    fun logout() {
+        viewModelScope.launch { repo.logout() }
     }
 
     private fun fail(e: Throwable) {

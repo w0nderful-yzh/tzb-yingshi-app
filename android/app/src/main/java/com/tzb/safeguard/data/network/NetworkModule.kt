@@ -2,7 +2,7 @@ package com.tzb.safeguard.data.network
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.tzb.safeguard.BuildConfig
-import com.tzb.safeguard.Session
+import com.tzb.safeguard.data.auth.AuthStore
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -23,22 +23,30 @@ object NetworkModule {
         explicitNulls = false
     }
 
-    private val okHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+    fun createHttpClient(authStore: AuthStore): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .apply {
                 addInterceptor { chain ->
                     val original = chain.request()
                     val request = original.newBuilder()
-                        .header("X-Demo-Role", Session.role)
                         .apply {
+                            authStore.currentToken()?.let { token ->
+                                header("Authorization", "Bearer $token")
+                            }
                             if (original.method != "GET" && original.header("Idempotency-Key") == null) {
                                 header("Idempotency-Key", UUID.randomUUID().toString())
                             }
                         }
                         .build()
                     chain.proceed(request)
+                }
+                addInterceptor { chain ->
+                    val response = chain.proceed(chain.request())
+                    if (response.code == 401 && chain.request().url.encodedPath != "/api/v1/auth/login") {
+                        authStore.clear()
+                    }
+                    response
                 }
                 if (BuildConfig.MOCK_MODE) {
                     addInterceptor(MockInterceptor())
@@ -48,13 +56,11 @@ object NetworkModule {
                         HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
                     )
                 }
-                // TODO(正式鉴权): 用 Authorization Bearer 替换 X-Demo-Role。
             }
             .build()
-    }
 
-    val apiService: ApiService by lazy {
-        Retrofit.Builder()
+    fun createApiService(okHttpClient: OkHttpClient): ApiService {
+        return Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))

@@ -1,20 +1,21 @@
 # App 端联调接口设计（老人端 / 家属端）
 
-> 状态：第一版 App 联调接口已落地。正式 Bearer 鉴权、可靠通知任务、联系人写接口和活动热力数据源仍按各节说明继续建设。
+> 状态：第一版 App 联调接口和简单 Bearer 会话鉴权已落地。注册、找回密码、令牌换发、可靠通知任务和联系人写接口仍按各节说明继续建设。
 > 变更需遵循 [API 契约变更流程](README.md#变更流程)。当前 App 只消费防诈事件；跌倒与心理关怀按 [跨模块协作说明](../product/fraud-first-app.md) 保留接入边界。
 
-第一阶段聚焦“身份与守护关系 → 统一事件 → SOS/处置 → 可靠通知 → 设备查看”的闭环。设备完整 CRUD、主动一键回呼和活动热力图列入第二阶段；数据库结构已升级到迁移头 `9b4e2f7a1c32`，接口实现状态仍以每节标记为准。
+第一阶段聚焦“身份与守护关系 → 统一事件 → SOS/处置 → 可靠通知 → 设备查看”的闭环。设备完整 CRUD、主动一键回呼和活动热力图列入第二阶段；数据库结构已升级到迁移头 `d4a7f1b9c2e0`，接口实现状态仍以每节标记为准。
 
 当前已实现并供 Android 关闭 Mock 后联调：
 
+- `POST /auth/login`、`GET /auth/me`、`POST /auth/logout`；
 - `GET /users/me`、`GET /safety/status`；
 - `POST /sos`；
 - 事件列表、详情、老人确认和家属状态处置；
-- 设备列表、萤石短时直播地址和原生 SDK 直播会话；
+- 设备列表、萤石短时直播地址、原生 SDK 直播会话和鉴权 PCM 转发；
 - 联系人只读列表、家属守护老人列表；
 - 事件统计和 `/stats/activity` 保留后端兼容接口，当前防诈 App 不调用。
 
-联调身份暂由 `X-Demo-Role: elder|family` 提供，仅在 `APP_DEMO_IDENTITY_ENABLED=true` 时生效；生产环境启用前必须替换为正式 Bearer Token。
+除登录和健康检查外，App 业务接口统一要求 `Authorization: Bearer <token>`。令牌原文只返回给客户端，数据库仅保存 SHA-256 哈希；退出后服务端立即吊销当前令牌。
 
 ## 1. 角色与端能力划分
 
@@ -37,7 +38,7 @@
 
 - 统一前缀：`/api/v1`
 - 统一响应、错误码、`X-Request-ID`：沿用 [API 契约](README.md#统一响应)。
-- 鉴权【规划】：请求头 `Authorization: Bearer <token>`。登录/换发接口本期由后端另行约定，联调阶段可用 Mock 固定令牌。
+- 鉴权【已实现】：请求头 `Authorization: Bearer <token>`。当前为 7 天有效的随机会话令牌，不是 JWT；有效期可通过 `APP_AUTH_SESSION_TTL_HOURS` 调整。
 - 所有时间字段为 ISO 8601 且必须带时区。
 - 列表接口统一分页参数：`cursor`（可选）+ `limit`（默认 20，最大 100），响应含 `next_cursor`。事件列表固定按 `(occurred_at DESC, event_id DESC)` 排序，`cursor` 是同时包含这两个值的不透明字符串。
 - 会触发事件、状态变化或外部通知的接口必须携带 `Idempotency-Key`；相同用户、接口和 Key 重试时返回首次结果，不重复执行副作用。
@@ -54,6 +55,28 @@
 | `21005` | 409 | 同一幂等 Key 被用于不同请求体 |
 | `21006` | 422 | 绑定码错误、过期或已使用 |
 
+### 2.1 登录、当前身份与退出【已实现】
+
+```text
+POST /api/v1/auth/login
+```
+
+```json
+{
+  "login_name": "guardian",
+  "password": "guardian123"
+}
+```
+
+成功响应返回 `access_token`、`expires_at` 和当前账号的 `user_id/role/name`。密码使用 PBKDF2-SHA256 加盐保存，服务端不保存明文密码。
+
+```text
+GET  /api/v1/auth/me
+POST /api/v1/auth/logout
+```
+
+这两个接口都要求 Bearer Token。退出后相同令牌再次访问返回 HTTP 401。
+
 ### 告警分级与状态机映射
 
 | App 分级 | 含义 | 对应后端状态 | 推送方式 |
@@ -68,7 +91,7 @@
 
 ## 3. 老人端接口
 
-### 3.1 获取当前用户信息【规划】
+### 3.1 获取当前用户信息【已实现】
 
 ```text
 GET /api/v1/users/me
@@ -81,7 +104,7 @@ GET /api/v1/users/me
   "data": {
     "user_id": "u-elder-001",
     "role": "elder",
-    "name": "王秀兰",
+    "name": "演示老人",
     "bound_family_count": 2,
     "font_size": "extra_large",
     "voice_assist_enabled": true
@@ -261,7 +284,18 @@ GET /api/v1/devices/{device_id}/live-sdk-session
 - 当前 Demo 使用萤石 AccessToken 授权。生产环境应启用正式用户鉴权，并切换为设备/通道级小权限 Token；
 - SDK 内部调试日志必须关闭，因为其请求日志可能包含 AccessToken。
 
-### 3.9 事件时间点历史回放【TODO，当前返回 501】
+### 3.9 SDK 音频 PCM 转发【已实现】
+
+```text
+POST /api/v1/devices/{device_id}/audio-pcm
+Content-Type: application/octet-stream
+X-Audio-Sample-Rate: 16000
+Authorization: Bearer <token>
+```
+
+用于 `APP_YS7_MEDIA_SOURCE=app_relay` 时，把 EZOpenSDK 解码后的 16 kHz、单声道、signed 16-bit little-endian PCM 转发给后端。服务端校验用户对设备的访问权限，单次请求体最多 64,000 字节；Android 当前按 32,000 字节（1 秒）发送，这只是传输批次，VAD 仍按 20 ms 帧和自然停顿切句。接口只入有界内存队列，不落盘，积压时丢弃最旧数据。
+
+### 3.10 事件时间点历史回放【TODO，当前返回 501】
 
 ```text
 GET /api/v1/devices/{device_id}/history-playback?elder_id=&at=&duration_seconds=30
@@ -269,7 +303,7 @@ GET /api/v1/devices/{device_id}/history-playback?elder_id=&at=&duration_seconds=
 
 App 已声明并接入入口。后端完成设备归属校验后明确返回 `501 Not Implemented`；待萤石历史回放能力接入后，返回短时有效的 `url`、`protocol`、`start_at` 和 `expires_in`，不得用直播地址冒充历史回放。
 
-### 3.10 守护设置查询【规划】
+### 3.11 守护设置查询【规划】
 
 ```text
 GET /api/v1/settings
@@ -300,10 +334,10 @@ Idempotency-Key: <UUID>
 ```
 
 ```json
-{ "bind_code": "8F3K2Q", "relation": "son", "display_name": "张伟" }
+{ "bind_code": "8F3K2Q", "relation": "son", "display_name": "演示家属" }
 ```
 
-响应 `data`：`{ "binding_id": "bind_xxx", "elder_id": "u-elder-001", "elder_name": "王秀兰", "bound": true }`。合法短期绑定码视为老人当次授权，绑定立即进入 `active`。
+响应 `data`：`{ "binding_id": "bind_xxx", "elder_id": "u-elder-001", "elder_name": "演示老人", "bound": true }`。合法短期绑定码视为老人当次授权，绑定立即进入 `active`。
 
 第一阶段只允许老人端撤销绑定：`DELETE /api/v1/family/bindings/{binding_id}`。家属端不能绕过老人直接解除守护关系。解绑后关系置为 `revoked`，保留历史授权记录。
 
@@ -321,7 +355,7 @@ GET /api/v1/family/elders
     "elders": [
       {
         "elder_id": "u-elder-001",
-        "name": "王秀兰",
+        "name": "演示老人",
         "relation": "son",
         "overall": "danger",
         "last_active_at": "2026-08-04T16:33:00+08:00",
@@ -437,7 +471,7 @@ POST /api/v1/contacts/{contact_id}/confirm
 ```json
 {
   "contacts": [
-    { "contact_id": "contact_001", "order": 1, "name": "张伟", "relation": "son", "phone_masked": "138****6688", "channels": ["push", "sms", "call"], "status": "active" },
+    { "contact_id": "contact_001", "order": 1, "name": "演示家属", "relation": "son", "phone_masked": "138****6688", "channels": ["push", "sms", "call"], "status": "active" },
     { "contact_id": "contact_002", "order": 2, "name": "张莉", "relation": "daughter", "phone_masked": "139****2233", "channels": ["push", "sms"], "status": "active" }
   ]
 }
@@ -505,7 +539,7 @@ DELETE /api/v1/users/me/push-endpoints/{install_id}
 
 `POST` 按当前用户和 `install_id` 幂等覆盖。推送 Token 加密落库并保存不可逆指纹，不在查询接口和日志中返回。用户退出登录或卸载时调用 `DELETE` 使端点失效。
 
-## 5. 实时通知（WebSocket）【规划】
+## 5. 实时通知（WebSocket）【已实现】
 
 ```text
 POST /api/v1/ws/tickets
@@ -514,25 +548,27 @@ WS /api/v1/ws/events?ticket=<60 秒有效的一次性票据>
 
 Bearer Token 不放在 WebSocket 查询参数中，避免被代理访问日志记录。客户端先用正常鉴权请求换取一次性票据，再建立连接。
 
-连接后按角色推送。老人端仅收本户事件；家属端收全部绑定老人的事件：
+票据 60 秒有效且只能消费一次。连接后按角色推送：老人端仅收本户事件，家属端收全部有效绑定老人的事件。连接成功先返回 `connected`，空闲时服务端每 20 秒发送 `ping` 保活。
 
 ```json
 {
-  "msg_type": "risk_event",
-  "data": {
+  "type": "risk_event.upserted",
+  "event": {
     "event_id": "evt_001",
-    "elder_id": "u-elder-001",
     "type": "fall_suspected",
     "level": "emergency",
     "title": "疑似跌倒",
+    "summary": "检测到疑似跌倒且持续未起身",
+    "device_id": "camera-01",
+    "status": "open",
     "occurred_at": "2026-08-04T15:02:11+08:00"
   }
 }
 ```
 
-其他 `msg_type`：`device_status`（上下线）、`escalation`（外呼升级进度）、`pong`（心跳应答，客户端 30 秒发一次 `ping`）。断线重连由客户端指数退避，重连后用 `GET /events?status=open` 补齐。
+风险首次创建和风险阶段升级都使用 `risk_event.upserted`；客户端按 `event_id` 幂等更新。断线重连由客户端重新申请票据并指数退避，重连后用 `GET /events?status=open` 补齐。
 
-`emergency` 级事件同时触发服务端短信/外呼通道，不依赖 App 在线。
+当前广播器是单进程有界内存实现；Docker Compose 的单 Uvicorn Worker 可用。多 Worker 部署前必须接入跨进程消息总线。短信、外呼和离线厂商推送仍未实现，不得将 WebSocket 在线通知表述为离线必达。
 
 ## 6. 复用已实现的后端能力
 
@@ -545,6 +581,7 @@ Bearer Token 不放在 WebSocket 查询参数中，避免被代理访问日志�
 | `GET /api/v1/fraud/visual-events` | 统一视觉事件查询，事件中心数据源 |
 | `POST /api/v1/fraud/analyze` | 联调期注入模拟通话转写，触发防诈告警 |
 | `POST /api/v1/fraud/audio/chunks` | 真实音频链路验证 |
+| `POST /api/v1/devices/{device_id}/audio-pcm` | Android EZOpenSDK 连续音频转发 |
 | `GET /api/v1/fraud/sessions/{session_id}` | 防诈会话风险快照查询 |
 | `GET /api/v1/integrations/ys7/media/status` | 取流 Worker 诊断 |
 
@@ -555,4 +592,4 @@ Bearer Token 不放在 WebSocket 查询参数中，避免被代理访问日志�
 - 活动热力图 `GET /stats/activity` 及其小时级活动汇总任务；
 - 心理关怀模块全部接口：情绪打卡（`POST /moods`）、情绪趋势（`GET /moods/trend`）、AI 陪伴对话（`POST /companion/chat`）；
 - 部署与运维相关内容（docker 化、CI 发布）；
-- 登录注册与令牌换发的正式方案（联调期使用 Mock 令牌）。
+- 用户注册、密码找回、密码修改和刷新令牌。

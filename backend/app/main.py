@@ -18,12 +18,15 @@ from app.infrastructure.external.sensevoice import (
     ParaformerStreamingRecognizer,
     SenseVoiceRecognizer,
 )
+from app.infrastructure.external.ys7.alarm_mapper import Ys7AlarmMapper
 from app.infrastructure.external.ys7.api_client import Ys7ApiClient
 from app.infrastructure.external.ys7.event_adapter import Ys7EventAdapter
 from app.infrastructure.external.ys7.event_parser import Ys7EventParser
 from app.infrastructure.external.ys7.media_stream import FfmpegPcmStreamSource
+from app.infrastructure.external.ys7.pcm_relay import AppPcmRelaySource
 from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.infrastructure.raw_signal_store import RawSignalStore
+from app.infrastructure.realtime_events import RealtimeEventBroker
 from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
@@ -31,6 +34,7 @@ from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.visual_event_store import VisualEventStore
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
+from app.workers.ys7_alarm_poll_worker import Ys7AlarmPollWorker
 from app.workers.ys7_event_worker import Ys7EventWorker
 from app.workers.ys7_media_stream_worker import Ys7MediaStreamWorker
 
@@ -56,7 +60,12 @@ def create_app(
     event_queue = Ys7EventQueue(maxsize=runtime_settings.ys7_queue_maxsize)
     visual_event_store = VisualEventStore()
     fraud_session_tracker = FraudSessionTracker()
-    risk_event_repository = RiskEventRepository(database) if database is not None else None
+    realtime_event_broker = RealtimeEventBroker()
+    risk_event_repository = (
+        RiskEventRepository(database, realtime_broker=realtime_event_broker)
+        if database is not None
+        else None
+    )
     fraud_session_repository = FraudSessionRepository(database) if database is not None else None
     llm_api_key = (
         runtime_settings.fraud_llm_api_key.get_secret_value()
@@ -139,7 +148,13 @@ def create_app(
         visual_event_store=visual_event_store,
         session_tracker=fraud_session_tracker,
     )
-    media_stream_source = FfmpegPcmStreamSource()
+    pcm_relay = AppPcmRelaySource(
+        device_id=runtime_settings.ys7_device_serial,
+        queue_maxsize=runtime_settings.ys7_pcm_relay_queue_maxsize,
+    )
+    media_stream_source = (
+        pcm_relay if runtime_settings.ys7_media_source == "app_relay" else FfmpegPcmStreamSource()
+    )
     ys7_api_client = Ys7ApiClient(
         app_key=(
             runtime_settings.ys7_app_key.get_secret_value()
@@ -157,6 +172,17 @@ def create_app(
             else None
         ),
     )
+    alarm_poll_worker = Ys7AlarmPollWorker(
+        alarm_provider=ys7_api_client,
+        signal_listener=signal_listener,
+        mapper=Ys7AlarmMapper(
+            default_device_serial=runtime_settings.ys7_device_serial or "unknown-device"
+        ),
+        device_serial=runtime_settings.ys7_device_serial or "unknown-device",
+        interval_seconds=runtime_settings.ys7_alarm_poll_interval_seconds,
+        lookback_seconds=runtime_settings.ys7_alarm_poll_lookback_seconds,
+        page_size=runtime_settings.ys7_alarm_poll_page_size,
+    )
     media_worker = Ys7MediaStreamWorker(
         address_provider=ys7_api_client,
         stream_source=media_stream_source,
@@ -169,6 +195,9 @@ def create_app(
         elder_alone=runtime_settings.ys7_elder_alone,
         vad_mode=runtime_settings.ys7_vad_mode,
         session_tracker=fraud_session_tracker,
+        stream_url=(
+            "app-pcm-relay://live" if runtime_settings.ys7_media_source == "app_relay" else None
+        ),
     )
 
     @asynccontextmanager
@@ -178,8 +207,10 @@ def create_app(
         try:
             if llm_worker is not None:
                 await llm_worker.start()
-            if runtime_settings.ys7_signal_enabled:
+            if runtime_settings.ys7_signal_enabled or runtime_settings.ys7_alarm_poll_enabled:
                 await event_worker.start()
+            if runtime_settings.ys7_alarm_poll_enabled:
+                await alarm_poll_worker.start()
             if runtime_settings.ys7_media_enabled and runtime_settings.sensevoice_enabled:
                 await media_worker.start()
             elif runtime_settings.ys7_media_enabled:
@@ -187,6 +218,7 @@ def create_app(
             yield
         finally:
             await media_worker.stop()
+            await alarm_poll_worker.stop()
             await event_worker.stop()
             if llm_worker is not None:
                 await llm_worker.stop()
@@ -209,7 +241,10 @@ def create_app(
     application.state.ys7_signal_listener = signal_listener
     application.state.ys7_event_queue = event_queue
     application.state.ys7_event_worker = event_worker
+    application.state.ys7_alarm_poll_worker = alarm_poll_worker
     application.state.ys7_media_worker = media_worker
+    application.state.ys7_pcm_relay = pcm_relay
+    application.state.realtime_event_broker = realtime_event_broker
     application.state.ys7_api_client = ys7_api_client
     application.state.visual_event_store = visual_event_store
     application.state.fraud_session_service = fraud_session_service

@@ -75,6 +75,7 @@ class Ys7MediaStreamWorker:
         vad_mode: int = 2,
         voice_detector: Callable[[bytes], bool] | None = None,
         session_tracker: FraudSessionTracker | None = None,
+        stream_url: str | None = None,
     ) -> None:
         self._address_provider = address_provider
         self._stream_source = stream_source
@@ -87,6 +88,7 @@ class Ys7MediaStreamWorker:
         self._vad_mode = vad_mode
         self._voice_detector = voice_detector
         self._session_tracker = session_tracker or FraudSessionTracker()
+        self._stream_url = stream_url
         self._queue: asyncio.Queue[_AnalysisJob] = asyncio.Queue(maxsize=queue_maxsize)
         self._stream_task: asyncio.Task[None] | None = None
         self._analysis_task: asyncio.Task[None] | None = None
@@ -149,12 +151,14 @@ class Ys7MediaStreamWorker:
             try:
                 if not self._device_serial:
                     raise RuntimeError("YS7 device serial is not configured")
-                live_address = await self._address_provider.get_live_address(
-                    device_serial=self._device_serial,
-                    channel_no=self._channel_no,
-                    protocol=self._protocol,
-                    quality=self._quality,
-                )
+                live_address = self._stream_url
+                if live_address is None:
+                    live_address = await self._address_provider.get_live_address(
+                        device_serial=self._device_serial,
+                        channel_no=self._channel_no,
+                        protocol=self._protocol,
+                        quality=self._quality,
+                    )
                 async for pcm in self._stream_source.stream(
                     live_address,
                     frame_ms=FRAME_MS,

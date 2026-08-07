@@ -33,6 +33,23 @@ def test_fraud_llm_api_key_is_redacted() -> None:
     assert "private-llm-key" not in repr(settings)
 
 
+def test_demo_passwords_are_redacted() -> None:
+    settings = Settings(
+        environment="test",
+        demo_elder_password="private-elder-password",
+        demo_guardian_password="private-guardian-password",
+        _env_file=None,
+    )
+
+    assert "private-elder-password" not in repr(settings)
+    assert "private-guardian-password" not in repr(settings)
+
+
+def test_auth_session_ttl_rejects_zero_hours() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        Settings(environment="test", auth_session_ttl_hours=0, _env_file=None)
+
+
 def test_streaming_asr_hotword_corrections_are_parsed_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -44,3 +61,12 @@ def test_streaming_asr_hotword_corrections_are_parsed_from_environment(
     settings = Settings(environment="test", _env_file=None)
 
     assert settings.streaming_asr_hotword_corrections == {"安全帐户": "安全账户"}
+
+
+def test_ys7_alarm_poll_interval_rejects_over_aggressive_polling() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 5"):
+        Settings(
+            environment="test",
+            ys7_alarm_poll_interval_seconds=4,
+            _env_file=None,
+        )

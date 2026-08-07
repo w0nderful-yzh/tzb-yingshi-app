@@ -11,6 +11,7 @@ from app.infrastructure.event_queue import SignalQueueFullError, Ys7EventQueue
 from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.modules.fraud.schemas import VisualEvent
 from app.modules.fraud.visual_event_store import VisualEventStore
+from app.workers.ys7_alarm_poll_worker import Ys7AlarmPollWorker
 from app.workers.ys7_event_worker import Ys7EventWorker
 from app.workers.ys7_media_stream_worker import Ys7MediaStreamWorker
 
@@ -27,10 +28,22 @@ class SignalStatusData(BaseModel):
     enabled: bool
     worker_running: bool
     queue_depth: int
+    polling_enabled: bool
+    poller_running: bool
+    poll_interval_seconds: float
+    polls_completed: int
+    alarms_seen: int
+    signals_accepted: int
+    signals_duplicate: int
+    alarms_ignored: int
+    last_polled_at: str | None
+    last_ignored_alarm_type: str | None
+    polling_last_error: str | None
 
 
 class MediaStatusData(BaseModel):
     enabled: bool
+    source: Literal["cloud", "app_relay"]
     running: bool
     connected: bool
     session_id: str | None
@@ -95,11 +108,25 @@ async def get_ys7_status(request: Request) -> ApiResponse[SignalStatusData]:
     settings: Settings = request.app.state.settings
     queue: Ys7EventQueue = request.app.state.ys7_event_queue
     worker: Ys7EventWorker = request.app.state.ys7_event_worker
+    poller: Ys7AlarmPollWorker = request.app.state.ys7_alarm_poll_worker
     return ApiResponse(
         data=SignalStatusData(
             enabled=settings.ys7_signal_enabled,
             worker_running=worker.running,
             queue_depth=queue.depth,
+            polling_enabled=settings.ys7_alarm_poll_enabled,
+            poller_running=poller.running,
+            poll_interval_seconds=settings.ys7_alarm_poll_interval_seconds,
+            polls_completed=poller.polls_completed,
+            alarms_seen=poller.alarms_seen,
+            signals_accepted=poller.signals_accepted,
+            signals_duplicate=poller.signals_duplicate,
+            alarms_ignored=poller.alarms_ignored,
+            last_polled_at=(
+                poller.last_polled_at.isoformat() if poller.last_polled_at is not None else None
+            ),
+            last_ignored_alarm_type=poller.last_ignored_alarm_type,
+            polling_last_error=poller.last_error,
         ),
         request_id=get_request_id(request),
     )
@@ -115,6 +142,7 @@ async def get_ys7_media_status(request: Request) -> ApiResponse[MediaStatusData]
     return ApiResponse(
         data=MediaStatusData(
             enabled=settings.ys7_media_enabled,
+            source=settings.ys7_media_source,
             running=worker.running,
             connected=worker.connected,
             session_id=worker.session_id,
