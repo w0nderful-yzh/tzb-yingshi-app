@@ -3,12 +3,19 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.infrastructure.database.models import DeviceModel, RiskEventModel
 from app.infrastructure.database.session import Database
+from app.infrastructure.realtime_events import RealtimeEventBroker, RealtimeRiskEvent
 from app.modules.fraud.ports import FraudRiskEventWrite
 
 
 class RiskEventRepository:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        realtime_broker: RealtimeEventBroker | None = None,
+    ) -> None:
         self._database = database
+        self._realtime_broker = realtime_broker
 
     async def upsert(self, event: FraudRiskEventWrite) -> None:
         state = str(event.evidence.get("state", "")).upper()
@@ -55,7 +62,7 @@ class RiskEventRepository:
             model_name=event.model_name,
             model_version=event.model_version,
         )
-        statement = statement.on_conflict_do_update(
+        returning_statement = statement.on_conflict_do_update(
             index_elements=[RiskEventModel.source, RiskEventModel.source_event_id],
             set_={
                 "elder_user_id": func.coalesce(
@@ -78,6 +85,31 @@ class RiskEventRepository:
                 "version": RiskEventModel.version + 1,
                 "updated_at": statement.excluded.updated_at,
             },
+        ).returning(
+            RiskEventModel.id,
+            RiskEventModel.elder_user_id,
+            RiskEventModel.external_device_id,
+            RiskEventModel.event_type,
+            RiskEventModel.alert_level,
+            RiskEventModel.status,
+            RiskEventModel.summary,
+            RiskEventModel.occurred_at,
         )
         async with self._database.session_factory() as session, session.begin():
-            await session.execute(statement)
+            persisted = (await session.execute(returning_statement)).one()
+        if self._realtime_broker is None or persisted.elder_user_id is None:
+            return
+        title = str(event.evidence.get("state_label") or "发现新的风险事件")
+        await self._realtime_broker.publish(
+            RealtimeRiskEvent(
+                event_id=str(persisted.id),
+                elder_user_id=persisted.elder_user_id,
+                event_type=persisted.event_type,
+                level=persisted.alert_level,
+                title=title,
+                summary=persisted.summary,
+                device_id=persisted.external_device_id or "",
+                occurred_at=persisted.occurred_at,
+                status=persisted.status,
+            )
+        )

@@ -9,6 +9,7 @@ from app.infrastructure.database.models import (
     UserModel,
 )
 from app.infrastructure.database.session import Database
+from app.modules.auth.passwords import hash_password, verify_password
 
 
 async def seed_demo() -> None:
@@ -30,7 +31,9 @@ async def seed_demo() -> None:
             if elder is None:
                 elder = UserModel(
                     external_subject=settings.demo_elder_subject,
-                    display_name="王秀兰",
+                    display_name=settings.demo_elder_name,
+                    login_name=settings.demo_elder_login,
+                    password_hash=hash_password(settings.demo_elder_password.get_secret_value()),
                     role="ELDER",
                     preferences={
                         "font_size": "extra_large",
@@ -40,6 +43,15 @@ async def seed_demo() -> None:
                 )
                 session.add(elder)
                 await session.flush()
+            else:
+                elder.display_name = settings.demo_elder_name
+                elder.login_name = settings.demo_elder_login
+                elder_password = settings.demo_elder_password.get_secret_value()
+                if not elder.password_hash or not verify_password(
+                    elder_password,
+                    elder.password_hash,
+                ):
+                    elder.password_hash = hash_password(elder_password)
 
             guardian = await session.scalar(
                 select(UserModel).where(
@@ -49,13 +61,24 @@ async def seed_demo() -> None:
             if guardian is None:
                 guardian = UserModel(
                     external_subject=settings.demo_guardian_subject,
-                    display_name="张伟",
+                    display_name=settings.demo_guardian_name,
+                    login_name=settings.demo_guardian_login,
+                    password_hash=hash_password(settings.demo_guardian_password.get_secret_value()),
                     role="GUARDIAN",
                     preferences={},
                     is_active=True,
                 )
                 session.add(guardian)
                 await session.flush()
+            else:
+                guardian.display_name = settings.demo_guardian_name
+                guardian.login_name = settings.demo_guardian_login
+                guardian_password = settings.demo_guardian_password.get_secret_value()
+                if not guardian.password_hash or not verify_password(
+                    guardian_password,
+                    guardian.password_hash,
+                ):
+                    guardian.password_hash = hash_password(guardian_password)
 
             binding = await session.scalar(
                 select(FamilyBindingModel).where(

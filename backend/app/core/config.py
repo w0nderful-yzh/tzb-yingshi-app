@@ -19,14 +19,25 @@ class Settings(BaseSettings):
         "postgresql+psycopg://app:change-me@127.0.0.1:5432/tzb_yingshi"
     )
     database_echo: bool = False
-    demo_identity_enabled: bool = False
     demo_elder_subject: str = "u-elder-001"
     demo_guardian_subject: str = "u-family-001"
+    demo_elder_name: str = "演示老人"
+    demo_guardian_name: str = "演示家属"
+    demo_elder_login: str = "elder"
+    demo_guardian_login: str = "guardian"
+    demo_elder_password: SecretStr = SecretStr("elder123")
+    demo_guardian_password: SecretStr = SecretStr("guardian123")
+    auth_session_ttl_hours: int = Field(default=168, ge=1, le=24 * 90)
     ys7_signal_enabled: bool = False
     ys7_webhook_token: SecretStr | None = None
     ys7_queue_maxsize: int = Field(default=1000, ge=1, le=100_000)
     ys7_raw_event_dir: Path = REPOSITORY_ROOT / "backend/storage/ys7/raw"
+    ys7_alarm_poll_enabled: bool = False
+    ys7_alarm_poll_interval_seconds: float = Field(default=5.0, ge=5.0, le=3600.0)
+    ys7_alarm_poll_lookback_seconds: int = Field(default=120, ge=30, le=3600)
+    ys7_alarm_poll_page_size: int = Field(default=50, ge=1, le=50)
     ys7_media_enabled: bool = False
+    ys7_media_source: Literal["cloud", "app_relay"] = "cloud"
     ys7_app_key: SecretStr | None = None
     ys7_app_secret: SecretStr | None = None
     ys7_access_token: SecretStr | None = None
@@ -35,6 +46,7 @@ class Settings(BaseSettings):
     ys7_live_protocol: Literal["hls", "rtmp", "flv"] = "flv"
     ys7_live_quality: int = Field(default=2, ge=1, le=3)
     ys7_media_queue_maxsize: int = Field(default=32, ge=4, le=200)
+    ys7_pcm_relay_queue_maxsize: int = Field(default=8, ge=2, le=100)
     ys7_vad_mode: int = Field(default=2, ge=0, le=3)
     ys7_elder_alone: bool = False
     sensevoice_enabled: bool = False

@@ -9,6 +9,7 @@ from app.infrastructure.database.base import Base
 def test_initial_schema_contains_required_tables() -> None:
     assert set(Base.metadata.tables) == {
         "users",
+        "auth_sessions",
         "family_bindings",
         "binding_codes",
         "user_push_endpoints",
@@ -24,6 +25,16 @@ def test_initial_schema_contains_required_tables() -> None:
         "event_actions",
         "event_deliveries",
     }
+
+
+def test_auth_schema_stores_password_and_session_tokens_as_hashes() -> None:
+    users = Base.metadata.tables["users"]
+    sessions = Base.metadata.tables["auth_sessions"]
+
+    assert {"login_name", "password_hash"} <= set(users.c.keys())
+    assert "password" not in users.c
+    assert {"user_id", "token_hash", "expires_at", "revoked_at"} <= set(sessions.c.keys())
+    assert "access_token" not in sessions.c
 
 
 def test_event_tables_preserve_occurrence_and_reception_time() -> None:

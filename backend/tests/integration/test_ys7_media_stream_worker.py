@@ -205,6 +205,7 @@ def test_media_status_endpoint_defaults_to_disabled(client: object) -> None:
     assert response.status_code == 200
     assert response.json()["data"] == {
         "enabled": False,
+        "source": "cloud",
         "running": False,
         "connected": False,
         "session_id": None,

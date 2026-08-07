@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import UUID
@@ -48,8 +47,7 @@ from app.modules.app_client.schemas import (
     TodayStats,
     UserInfo,
 )
-
-DemoRole = Literal["elder", "family"]
+from app.modules.auth.service import AuthenticatedIdentity as AppIdentity
 
 _EVENT_TYPES = {
     "FRAUD_SUSPECTED": "fraud_suspected",
@@ -78,12 +76,6 @@ _OVERALL_BY_LEVEL = {
     "EMERGENCY": "danger",
 }
 _LEVEL_RANK = {"REMINDER": 1, "WARNING": 2, "EMERGENCY": 3}
-
-
-@dataclass(frozen=True, slots=True)
-class AppIdentity:
-    user: UserModel
-    role: DemoRole
 
 
 def _external_user_id(user: UserModel) -> str:
@@ -185,9 +177,7 @@ def _fraud_scene(evidence: dict[str, object]) -> Literal["telecom", "home_visit"
         return "telecom"
 
     people_counts = [
-        item.get("people_count")
-        for item in items
-        if item.get("kind") == "people_count_context"
+        item.get("people_count") for item in items if item.get("kind") == "people_count_context"
     ]
     if any(isinstance(count, int) and count >= 2 for count in people_counts):
         return "home_visit"
@@ -243,29 +233,6 @@ class AppClientService:
         self._settings = settings
         self._live_address_provider = live_address_provider
         self._sdk_credential_provider = sdk_credential_provider
-
-    async def resolve_identity(self, role: DemoRole) -> AppIdentity:
-        if not self._settings.demo_identity_enabled or self._settings.environment == "production":
-            raise HTTPException(status_code=401, detail="authentication is not configured")
-        subject = (
-            self._settings.demo_elder_subject
-            if role == "elder"
-            else self._settings.demo_guardian_subject
-        )
-        expected_role = "ELDER" if role == "elder" else "GUARDIAN"
-        user = await self._session.scalar(
-            select(UserModel).where(
-                UserModel.external_subject == subject,
-                UserModel.role == expected_role,
-                UserModel.is_active.is_(True),
-            )
-        )
-        if user is None:
-            raise HTTPException(
-                status_code=401,
-                detail="demo identity is not initialized; run the demo seed command",
-            )
-        return AppIdentity(user=user, role=role)
 
     async def resolve_elder(
         self,

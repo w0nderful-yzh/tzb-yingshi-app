@@ -5,6 +5,7 @@ import httpx
 
 TOKEN_URL = "https://open.ys7.com/api/lapp/token/get"
 LIVE_ADDRESS_URL = "https://open.ys7.com/api/lapp/v2/live/address/get"
+ALARM_LIST_URL = "https://open.ys7.com/api/lapp/alarm/device/list"
 PROTOCOL_CODES = {"hls": 2, "rtmp": 3, "flv": 4}
 
 
@@ -25,6 +26,17 @@ class Ys7LiveAddressProvider(Protocol):
 
 class Ys7SdkCredentialProvider(Protocol):
     async def get_access_token(self) -> str: ...
+
+
+class Ys7AlarmProvider(Protocol):
+    async def list_device_alarms(
+        self,
+        *,
+        device_serial: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        page_size: int,
+    ) -> list[dict[str, Any]]: ...
 
 
 class Ys7ApiClient:
@@ -103,6 +115,37 @@ class Ys7ApiClient:
             int(expire_time) if expire_time is not None else now_ms + 3_600_000
         )
         return self._cached_access_token
+
+    async def list_device_alarms(
+        self,
+        *,
+        device_serial: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        page_size: int,
+    ) -> list[dict[str, Any]]:
+        token = await self.get_access_token()
+        params: dict[str, object] = {
+            "accessToken": token,
+            "deviceSerial": device_serial,
+            "startTime": start_time_ms,
+            "endTime": end_time_ms,
+            "status": 2,
+            "pageStart": 0,
+            "pageSize": page_size,
+        }
+        response = await self._post(ALARM_LIST_URL, params)
+        if str(response.get("code")) == "10002" and self._static_access_token is None:
+            self._cached_access_token = None
+            params["accessToken"] = await self.get_access_token()
+            response = await self._post(ALARM_LIST_URL, params)
+        self._require_success(response, operation="list device alarms")
+        data = response.get("data")
+        if data is None:
+            return []
+        if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+            raise Ys7ApiError("YS7 alarm list response did not contain a valid data list")
+        return cast(list[dict[str, Any]], data)
 
     async def _post(self, url: str, data: dict[str, object]) -> dict[str, Any]:
         try:
