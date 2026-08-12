@@ -62,6 +62,8 @@ HTTP 共享令牌只是正式推送签名协议到位前的开发保护措施。
 
 SenseVoice 通过 `SpeechRecognizer` 端口与业务层隔离，FunASR 只存在于 `infrastructure/external/sensevoice/`。模型懒加载且推理串行化；API 使用工作线程调用同步模型，模型缺失或失败不会阻止健康检查、萤石视觉接收和已有转写 API。
 
+运行设备属于语音识别基础设施配置，不改变防诈业务层和 API 契约。当前默认 Docker 构建固定使用 CPU-only Torch/Torchaudio，以便普通电脑开箱运行；Windows + NVIDIA RTX 4060 后续可通过 Docker Desktop WSL 2、独立 CUDA 镜像和 Compose GPU override 加速 SenseVoice/Paraformer 推理。GPU 方案在完成依赖锁定、容器内 CUDA 检测和端到端性能验证前只属于可选部署规划，默认 CPU 镜像必须继续保留为兼容和故障回退路径。
+
 ## 萤石直播音轨与持续守护
 
 ```text

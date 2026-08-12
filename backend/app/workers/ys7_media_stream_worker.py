@@ -1,16 +1,23 @@
 import asyncio
 import io
 import logging
+import time
 import wave
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from app.infrastructure.external.ys7.api_client import Ys7LiveAddressProvider
 from app.infrastructure.external.ys7.media_stream import PcmStreamSource
 from app.modules.fraud.audio_service import FraudAudioService
+from app.modules.fraud.latency import (
+    FraudLatencyTrace,
+    finish_trace,
+    record_span,
+    start_trace,
+)
 from app.modules.fraud.schemas import FraudAudioChunkRequest
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.voice_activity import FRAME_MS, VoiceActivitySegmenter, VoiceSegment
@@ -27,6 +34,7 @@ class _QueuedPcmChunk:
     started_at: datetime
     pcm: bytes
     replaces_source_event_id: str | None = None
+    enqueued_ns: int = field(default_factory=time.monotonic_ns)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +44,7 @@ class _QueuedStreamingPcm:
     started_at: datetime
     pcm: bytes
     is_final: bool
+    enqueued_ns: int = field(default_factory=time.monotonic_ns)
 
 
 @dataclass(slots=True)
@@ -331,9 +340,27 @@ class Ys7MediaStreamWorker:
                 self.chunks_dropped += 1
         self._queue.put_nowait(chunk)
 
+    def _start_job_trace(self, job: _AnalysisJob) -> FraudLatencyTrace | None:
+        if isinstance(job, _QueuedStreamingPcm):
+            return start_trace(
+                device_id=self._device_serial or "unknown",
+                session_id=job.session_id,
+                source_event_id=job.event_id,
+                transcript_status="PARTIAL",
+            )
+        return start_trace(
+            device_id=self._device_serial or "unknown",
+            session_id=job.session_id,
+            source_event_id=job.chunk_id,
+            transcript_status="FINAL",
+        )
+
     async def _run_analysis(self) -> None:
         while True:
             job = await self._queue.get()
+            queue_wait_ms = (time.monotonic_ns() - job.enqueued_ns) / 1_000_000
+            trace = self._start_job_trace(job)
+            record_span("queue_wait", queue_wait_ms)
             try:
                 if self._device_serial is None:
                     continue
@@ -377,3 +404,4 @@ class Ys7MediaStreamWorker:
                 )
             finally:
                 self._queue.task_done()
+                finish_trace(trace)

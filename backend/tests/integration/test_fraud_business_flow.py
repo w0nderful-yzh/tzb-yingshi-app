@@ -1,8 +1,10 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import pytest
 
+from app.modules.fraud.latency import configure_tracing
 from app.modules.fraud.ports import FraudRiskEventWrite, FraudSessionRecord
 from app.modules.fraud.schemas import FraudAnalyzeRequest, VisualEvent
 from app.modules.fraud.service import FraudSessionService
@@ -259,3 +261,44 @@ def test_fraud_api_rejects_naive_time(client: Any) -> None:
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_latency_trace_records_decision_stages(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    configure_tracing(enabled=True)
+    try:
+        at = datetime(2026, 8, 4, 10, 0, tzinfo=UTC)
+        service = FraudSessionService(
+            visual_event_store=VisualEventStore(),
+            risk_event_sink=CapturingRiskSink(),
+            session_store=CapturingSessionStore(),
+        )
+        with caplog.at_level(logging.INFO, logger="app.modules.fraud.latency"):
+            await service.analyze(
+                _request(
+                    session_id="latency-session",
+                    source_event_id="latency-speech-1",
+                    text="把短信验证码告诉我，不要告诉家人",
+                    at=at,
+                    elder_alone=True,
+                )
+            )
+    finally:
+        configure_tracing(enabled=False)
+
+    latency_records = [
+        record for record in caplog.records if hasattr(record, "fraud_latency")
+    ]
+    assert latency_records, "expected a fraud_latency structured log record"
+    payload = latency_records[-1].fraud_latency
+    stages = payload["stages"]
+    for expected in ("evidence_extract", "state_machine", "event_persist", "session_persist"):
+        assert expected in stages, f"missing stage {expected}"
+        assert stages[expected] >= 0
+    assert payload["total_ms"] >= 0
+    assert payload["transcript_status"] == "FINAL"
+    # 脱敏校验：日志载荷中不得出现原始标识。
+    assert "latency-session" not in str(payload)
+    assert "camera-01" not in str(payload)

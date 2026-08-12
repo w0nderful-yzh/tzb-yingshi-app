@@ -175,6 +175,29 @@ docker compose up --build -d
 
 SenseVoice 会显著增大镜像体积，因此默认不安装。需要实时语音识别时，在 `.env` 中设置 `INSTALL_SENSEVOICE=true`，同时按下文配置萤石媒体参数。Docker 镜像固定使用同版本的 CPU-only Torch/Torchaudio，不下载 NVIDIA CUDA 运行时；Compose 内的数据库地址由 `TZB_DB_NAME`、`TZB_DB_USER` 和 `TZB_DB_PASSWORD` 生成，不使用宿主机的 `APP_DATABASE_URL`。
 
+### Windows + NVIDIA RTX 4060 GPU 加速（可选规划）
+
+组员在 Windows 10/11 和 NVIDIA RTX 4060 电脑上运行时，可以通过 Docker Desktop 的 WSL 2 后端将 GPU 提供给 Linux 容器，用于加速 SenseVoice 和 Paraformer 的模型推理。宿主机需要安装支持 WSL 2 的最新 NVIDIA 驱动、更新 WSL，并在 Docker Desktop 中启用 WSL 2 后端；可按 [Docker Desktop GPU 官方说明](https://docs.docker.com/desktop/features/gpu/)完成准备和验证。
+
+```powershell
+wsl --update
+nvidia-smi
+docker run --rm -it --gpus=all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark
+```
+
+当前仓库的默认 Docker 镜像仍是已经验证过的 CPU-only 版本，**现阶段仅设置 `APP_SENSEVOICE_DEVICE=cuda:0` 或给容器开放 GPU 并不能启用 CUDA**。正式提供 GPU 版本时，需要保留默认 CPU 镜像作为兼容和回退方案，并另外完成以下工作：
+
+1. 增加独立的 GPU Dockerfile 或 Compose override，显式向 `backend` 容器开放 NVIDIA GPU；
+2. 在 GPU 构建目标中将 CPU-only Torch/Torchaudio 替换为与驱动兼容的官方 CUDA wheel，并独立锁定依赖，具体版本通过 [PyTorch 安装选择器](https://pytorch.org/get-started/locally/)确认；
+3. 将 `APP_SENSEVOICE_DEVICE` 和 `APP_STREAMING_ASR_DEVICE` 设置为经过实机验证的 CUDA 设备，例如 `cuda:0`；
+4. 构建后先确认容器内 `torch.cuda.is_available()` 为 `True`，再进行实时音轨端到端测试和性能对比。
+
+```bash
+docker compose exec backend uv run --no-sync python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+```
+
+RTX 4060 主要优化语音模型推理延迟和高并发时的任务积压，不会加速 PostgreSQL、普通 API、萤石网络取流，也不会自动提高识别准确率。实际收益取决于语音片段长度、并发量、模型和 CUDA 依赖版本；GPU 初始化或推理失败时应回退到默认 CPU 部署。
+
 停止服务不会删除数据；如需连同本地 Docker 数据卷一起重置，可执行：
 
 ```bash
