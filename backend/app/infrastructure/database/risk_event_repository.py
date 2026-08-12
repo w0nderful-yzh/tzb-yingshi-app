@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.infrastructure.database.models import DeviceModel, RiskEventModel
 from app.infrastructure.database.session import Database
 from app.infrastructure.realtime_events import RealtimeEventBroker, RealtimeRiskEvent
+from app.modules.fraud.latency import latency_stage
 from app.modules.fraud.ports import FraudRiskEventWrite
 
 
@@ -95,21 +96,23 @@ class RiskEventRepository:
             RiskEventModel.summary,
             RiskEventModel.occurred_at,
         )
-        async with self._database.session_factory() as session, session.begin():
-            persisted = (await session.execute(returning_statement)).one()
+        with latency_stage("event_commit"):
+            async with self._database.session_factory() as session, session.begin():
+                persisted = (await session.execute(returning_statement)).one()
         if self._realtime_broker is None or persisted.elder_user_id is None:
             return
         title = str(event.evidence.get("state_label") or "发现新的风险事件")
-        await self._realtime_broker.publish(
-            RealtimeRiskEvent(
-                event_id=str(persisted.id),
-                elder_user_id=persisted.elder_user_id,
-                event_type=persisted.event_type,
-                level=persisted.alert_level,
-                title=title,
-                summary=persisted.summary,
-                device_id=persisted.external_device_id or "",
-                occurred_at=persisted.occurred_at,
-                status=persisted.status,
+        with latency_stage("broker_publish"):
+            await self._realtime_broker.publish(
+                RealtimeRiskEvent(
+                    event_id=str(persisted.id),
+                    elder_user_id=persisted.elder_user_id,
+                    event_type=persisted.event_type,
+                    level=persisted.alert_level,
+                    title=title,
+                    summary=persisted.summary,
+                    device_id=persisted.external_device_id or "",
+                    occurred_at=persisted.occurred_at,
+                    status=persisted.status,
+                )
             )
-        )

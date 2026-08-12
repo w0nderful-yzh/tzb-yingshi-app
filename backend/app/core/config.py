@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     fraud_llm_max_transcript_chars: int = Field(default=6_000, ge=500, le=20_000)
     fraud_llm_vision_enabled: bool = False
     fraud_llm_max_images: int = Field(default=4, ge=1, le=8)
+    fraud_latency_trace_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
