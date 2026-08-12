@@ -29,6 +29,7 @@ from app.infrastructure.raw_signal_store import RawSignalStore
 from app.infrastructure.realtime_events import RealtimeEventBroker
 from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
+from app.modules.fraud.latency import configure_tracing
 from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
 from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
@@ -48,6 +49,7 @@ def create_app(
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(runtime_settings.log_level)
+    configure_tracing(enabled=runtime_settings.fraud_latency_trace_enabled)
 
     database = (
         Database(

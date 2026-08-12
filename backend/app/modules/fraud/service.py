@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from app.modules.fraud.latency import finish_trace, latency_stage, start_trace
 from app.modules.fraud.llm import FraudLlmReviewQueue, FraudLlmReviewRequest
 from app.modules.fraud.ports import (
     FraudRiskEventSink,
@@ -70,63 +71,81 @@ class FraudSessionService:
         self._lock = asyncio.Lock()
 
     async def analyze(self, payload: FraudAnalyzeRequest) -> FraudAnalyzeData:
-        key = (payload.device_id, payload.session_id)
-        async with self._lock:
-            session = self._sessions.get(key)
-            if session is None:
-                session = await self._restore(payload.device_id, payload.session_id)
-            if session is None:
-                session = _FraudSession(
-                    session_id=payload.session_id,
-                    device_id=payload.device_id,
-                    elder_alone=payload.elder_alone,
-                    started_at=payload.occurred_at,
-                    last_activity_at=payload.ended_at,
+        trace = start_trace(
+            device_id=payload.device_id,
+            session_id=payload.session_id,
+            source_event_id=payload.source_event_id,
+            transcript_status=payload.transcript_status,
+            model_name=RISK_MODEL_NAME,
+        )
+        try:
+            key = (payload.device_id, payload.session_id)
+            async with self._lock:
+                session = self._sessions.get(key)
+                if session is None:
+                    session = await self._restore(payload.device_id, payload.session_id)
+                if session is None:
+                    session = _FraudSession(
+                        session_id=payload.session_id,
+                        device_id=payload.device_id,
+                        elder_alone=payload.elder_alone,
+                        started_at=payload.occurred_at,
+                        last_activity_at=payload.ended_at,
+                    )
+                    await self._close_other_sessions(
+                        device_id=payload.device_id,
+                        active_session_id=payload.session_id,
+                        ended_at=payload.occurred_at,
+                    )
+                self._sessions[key] = session
+                session.elder_alone = session.elder_alone or payload.elder_alone
+                session.started_at = min(session.started_at, payload.occurred_at)
+                session.last_activity_at = max(session.last_activity_at, payload.ended_at)
+                existing = session.speech_events.get(payload.source_event_id)
+                should_update = (
+                    existing is not None and existing.get("transcript_status") == "PARTIAL"
                 )
-                await self._close_other_sessions(
-                    device_id=payload.device_id,
-                    active_session_id=payload.session_id,
-                    ended_at=payload.occurred_at,
-                )
-            self._sessions[key] = session
-            session.elder_alone = session.elder_alone or payload.elder_alone
-            session.started_at = min(session.started_at, payload.occurred_at)
-            session.last_activity_at = max(session.last_activity_at, payload.ended_at)
-            existing = session.speech_events.get(payload.source_event_id)
-            should_update = existing is not None and existing.get("transcript_status") == "PARTIAL"
-            if existing is None or should_update:
-                speech_events = await asyncio.to_thread(
-                    build_speech_events,
-                    [
-                        {
-                            "start_ms": to_epoch_ms(payload.occurred_at),
-                            "end_ms": to_epoch_ms(payload.ended_at),
-                            "text": payload.text,
-                            "language": payload.language,
-                            "emotion": payload.emotion,
-                            "audio_events": payload.audio_events,
-                            "transcript_status": payload.transcript_status,
-                        }
-                    ],
-                    event_id_offset=len(session.speech_events) - (1 if should_update else 0),
-                )
-                speech_event = speech_events[0]
-                speech_event["source_event_id"] = payload.source_event_id
-                session.speech_events[payload.source_event_id] = speech_event
-                status: Literal["accepted", "updated", "duplicate"] = (
-                    "updated" if should_update else "accepted"
-                )
-            else:
-                speech_event = existing
-                status = "duplicate"
+                if existing is None or should_update:
+                    with latency_stage("evidence_extract"):
+                        speech_events = await asyncio.to_thread(
+                            build_speech_events,
+                            [
+                                {
+                                    "start_ms": to_epoch_ms(payload.occurred_at),
+                                    "end_ms": to_epoch_ms(payload.ended_at),
+                                    "text": payload.text,
+                                    "language": payload.language,
+                                    "emotion": payload.emotion,
+                                    "audio_events": payload.audio_events,
+                                    "transcript_status": payload.transcript_status,
+                                }
+                            ],
+                            event_id_offset=(
+                                len(session.speech_events) - (1 if should_update else 0)
+                            ),
+                        )
+                    speech_event = speech_events[0]
+                    speech_event["source_event_id"] = payload.source_event_id
+                    session.speech_events[payload.source_event_id] = speech_event
+                    status: Literal["accepted", "updated", "duplicate"] = (
+                        "updated" if should_update else "accepted"
+                    )
+                else:
+                    speech_event = existing
+                    status = "duplicate"
 
-            risk = await self._snapshot(session)
-            if payload.transcript_status == "FINAL" and risk.state != "S0_NORMAL":
-                await self._persist(risk)
-            if payload.transcript_status == "FINAL":
-                await self._submit_llm_review(session, risk)
-            await self._persist_session(session)
-            return FraudAnalyzeData(status=status, speech_event=speech_event, risk=risk)
+                with latency_stage("state_machine"):
+                    risk = await self._snapshot(session)
+                if payload.transcript_status == "FINAL" and risk.state != "S0_NORMAL":
+                    with latency_stage("event_persist"):
+                        await self._persist(risk)
+                if payload.transcript_status == "FINAL":
+                    await self._submit_llm_review(session, risk)
+                with latency_stage("session_persist"):
+                    await self._persist_session(session)
+                return FraudAnalyzeData(status=status, speech_event=speech_event, risk=risk)
+        finally:
+            finish_trace(trace)
 
     async def get_session(
         self,

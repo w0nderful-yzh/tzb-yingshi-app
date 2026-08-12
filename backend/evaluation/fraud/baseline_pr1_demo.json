@@ -1,0 +1,202 @@
+{
+  "environment": {
+    "device": "cpu",
+    "classifier_model": "char_tfidf_calibrated_logreg_evidence_v2",
+    "git_commit": "0fd0a40",
+    "train_data_digest": "6e210f6e527fcc47"
+  },
+  "sample_count": 5,
+  "latency": {
+    "evidence_extract": {
+      "count": 5.0,
+      "p50_ms": 26.276,
+      "p95_ms": 36.675,
+      "max_ms": 38.782
+    },
+    "state_machine": {
+      "count": 5.0,
+      "p50_ms": 0.111,
+      "p95_ms": 0.718,
+      "max_ms": 0.865
+    },
+    "total_decision": {
+      "count": 5.0,
+      "p50_ms": 26.367,
+      "p95_ms": 37.393,
+      "max_ms": 39.647
+    }
+  },
+  "accuracy": {
+    "labels": {
+      "per_label": {
+        "identity_claim": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 1
+        },
+        "benefit_lure": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "emergency_pretext": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 1
+        },
+        "amount_request": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "sensitive_info_request": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "credential_request": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 1
+        },
+        "remote_control_instruction": {
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667,
+          "support": 1
+        },
+        "money_instruction": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 1
+        },
+        "secrecy_control": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 1
+        },
+        "urgency_pressure": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0
+        },
+        "protective_warning": {
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667,
+          "support": 1
+        }
+      },
+      "micro": {
+        "precision": 0.5455,
+        "recall": 0.8571,
+        "f1": 0.6667
+      }
+    },
+    "states": {
+      "scored_samples": 5,
+      "state_accuracy": 1.0,
+      "confusion": {
+        "S5_CRITICAL_CONTROL": {
+          "S5_CRITICAL_CONTROL": 3
+        },
+        "S0_NORMAL": {
+          "S0_NORMAL": 2
+        }
+      }
+    }
+  },
+  "leakage_warnings": [],
+  "samples": [
+    {
+      "id": "demo-001",
+      "scenario": "fake_customer_service",
+      "evidence_extract_ms": 38.782,
+      "state_machine_ms": 0.865,
+      "total_ms": 39.647,
+      "predicted_state": "S5_CRITICAL_CONTROL",
+      "expected_state": "S5_CRITICAL_CONTROL",
+      "predicted_labels": [
+        "credential_request",
+        "identity_claim",
+        "urgency_pressure"
+      ],
+      "expected_labels": [
+        "identity_claim",
+        "credential_request"
+      ]
+    },
+    {
+      "id": "demo-002",
+      "scenario": "family_emergency",
+      "evidence_extract_ms": 26.276,
+      "state_machine_ms": 0.091,
+      "total_ms": 26.367,
+      "predicted_state": "S5_CRITICAL_CONTROL",
+      "expected_state": "S5_CRITICAL_CONTROL",
+      "predicted_labels": [
+        "amount_request",
+        "emergency_pretext",
+        "money_instruction",
+        "remote_control_instruction",
+        "urgency_pressure"
+      ],
+      "expected_labels": [
+        "emergency_pretext",
+        "money_instruction"
+      ]
+    },
+    {
+      "id": "demo-003",
+      "scenario": "remote_control",
+      "evidence_extract_ms": 28.247,
+      "state_machine_ms": 0.128,
+      "total_ms": 28.375,
+      "predicted_state": "S5_CRITICAL_CONTROL",
+      "expected_state": "S5_CRITICAL_CONTROL",
+      "predicted_labels": [
+        "protective_warning",
+        "remote_control_instruction"
+      ],
+      "expected_labels": [
+        "remote_control_instruction",
+        "secrecy_control"
+      ]
+    },
+    {
+      "id": "demo-004",
+      "scenario": "anti_fraud_warning",
+      "evidence_extract_ms": 20.079,
+      "state_machine_ms": 0.111,
+      "total_ms": 20.19,
+      "predicted_state": "S0_NORMAL",
+      "expected_state": "S0_NORMAL",
+      "predicted_labels": [
+        "protective_warning"
+      ],
+      "expected_labels": [
+        "protective_warning"
+      ]
+    },
+    {
+      "id": "demo-005",
+      "scenario": "normal_family",
+      "evidence_extract_ms": 25.224,
+      "state_machine_ms": 0.086,
+      "total_ms": 25.31,
+      "predicted_state": "S0_NORMAL",
+      "expected_state": "S0_NORMAL",
+      "predicted_labels": [],
+      "expected_labels": []
+    }
+  ]
+}
