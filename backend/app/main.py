@@ -9,6 +9,7 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.request_id import RequestIdMiddleware
 from app.infrastructure.database.fraud_session_repository import FraudSessionRepository
+from app.infrastructure.database.recent_risk_repository import RecentFraudRiskRepository
 from app.infrastructure.database.risk_event_repository import RiskEventRepository
 from app.infrastructure.database.session import Database
 from app.infrastructure.event_deduplicator import EventDeduplicator
@@ -32,6 +33,7 @@ from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.latency import configure_tracing
 from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
 from app.modules.fraud.model_readiness import ModelReadinessTracker, warmup_models
+from app.modules.fraud.semantic_retriever import build_semantic_retriever
 from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.text_classifier import get_default_classifier
@@ -116,6 +118,14 @@ def create_app(
         preliminary_stable_revisions=runtime_settings.fraud_preliminary_stable_revisions,
         preliminary_confirm_min_state_index=(
             runtime_settings.fraud_preliminary_confirm_min_state_index
+        ),
+        semantic_retriever=build_semantic_retriever(
+            enabled=runtime_settings.fraud_semantic_retriever_enabled
+        ),
+        recent_risk_store=(
+            RecentFraudRiskRepository(database)
+            if database is not None and runtime_settings.fraud_recent_risk_enabled
+            else None
         ),
     )
     llm_worker = (

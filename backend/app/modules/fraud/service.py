@@ -12,6 +12,8 @@ from app.modules.fraud.ports import (
     FraudRiskEventWrite,
     FraudSessionRecord,
     FraudSessionStore,
+    RecentFraudRiskStore,
+    SemanticEvidenceRetriever,
 )
 from app.modules.fraud.risk_engine import (
     RISK_MODEL_NAME,
@@ -19,6 +21,7 @@ from app.modules.fraud.risk_engine import (
     build_risk_snapshot,
     to_epoch_ms,
 )
+from app.modules.fraud.risk_profile import recent_context_evidence
 from app.modules.fraud.schemas import (
     FraudAnalyzeData,
     FraudAnalyzeRequest,
@@ -66,6 +69,8 @@ class FraudSessionService:
         preliminary_min_confidence: float = 0.90,
         preliminary_stable_revisions: int = 2,
         preliminary_confirm_min_state_index: int = 2,
+        semantic_retriever: SemanticEvidenceRetriever | None = None,
+        recent_risk_store: RecentFraudRiskStore | None = None,
     ) -> None:
         self._visual_event_store = visual_event_store
         self._risk_event_sink = risk_event_sink
@@ -80,6 +85,8 @@ class FraudSessionService:
         self._preliminary_min_confidence = preliminary_min_confidence
         self._preliminary_stable_revisions = preliminary_stable_revisions
         self._preliminary_confirm_min_state_index = preliminary_confirm_min_state_index
+        self._semantic_retriever = semantic_retriever
+        self._recent_risk_store = recent_risk_store
         self._sessions: dict[tuple[str, str], _FraudSession] = {}
         self._lock = asyncio.Lock()
 
@@ -269,6 +276,36 @@ class FraudSessionService:
             limit=200,
         )
         extra_evidence = [dict(item) for item in session.llm_evidence.values()]
+        at_ms = (
+            max(int(event["end_ms"]) for event in session.speech_events.values())
+            if session.speech_events
+            else to_epoch_ms(datetime.now(UTC))
+        )
+        if (
+            self._semantic_retriever is not None
+            and self._semantic_retriever.available
+            and session.speech_events
+        ):
+            transcript = " ".join(
+                str(event.get("text", ""))
+                for event in sorted(
+                    session.speech_events.values(),
+                    key=lambda event: int(event["start_ms"]),
+                )
+            )[:6_000]
+            extra_evidence.extend(
+                await self._semantic_retriever.retrieve(
+                    text=transcript,
+                    session_id=session.session_id,
+                )
+            )
+        if self._recent_risk_store is not None:
+            context = await self._recent_risk_store.load_recent_context(
+                device_id=session.device_id,
+                session_id=session.session_id,
+            )
+            if context is not None:
+                extra_evidence.extend(recent_context_evidence(context, at_ms=at_ms))
         return build_risk_snapshot(
             session_id=session.session_id,
             device_id=session.device_id,
