@@ -96,6 +96,10 @@ services:
     volumes:
       - backend_storage:/app/backend/storage
       - sensevoice_models:/root/.cache/modelscope
+      # 本地开发：直接使用宿主机代码，改代码后 docker compose restart backend 即生效，无需重建镜像
+      - ./backend/app:/app/backend/app
+      - ./backend/alembic:/app/backend/alembic
+      - ./backend/alembic.ini:/app/backend/alembic.ini
     restart: unless-stopped
 
 volumes:
