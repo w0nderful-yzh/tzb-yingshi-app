@@ -182,6 +182,13 @@ fun eventStatusLabel(status: String): String = when (status) {
     else -> status
 }
 
+fun verificationStatusLabel(verificationStatus: String?): String = when (verificationStatus) {
+    "preliminary" -> "系统预警，待确认"
+    "confirmed" -> "已确认"
+    "retracted" -> "系统已撤回"
+    else -> ""
+}
+
 /** 告警条目卡片：左侧 8dp 级别色条，与原型一致 */
 @Composable
 fun AlertCard(event: RiskEvent, showScene: Boolean = true, onClick: () -> Unit) {

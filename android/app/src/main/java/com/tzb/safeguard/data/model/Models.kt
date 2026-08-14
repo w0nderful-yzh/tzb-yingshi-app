@@ -63,6 +63,7 @@ data class RealtimeRiskEvent(
     val device_id: String = "",
     val occurred_at: String = "",
     val status: String = "open",
+    val verification_status: String? = null, // preliminary | confirmed | retracted
 )
 
 @Serializable
@@ -140,7 +141,8 @@ data class RiskEvent(
     val fraud_state: String? = null,
     val fraud_state_index: Int? = null,
     val fraud_state_label: String? = null,
-    val fraud_decision: String? = null
+    val fraud_decision: String? = null,
+    val verification_status: String? = null // preliminary | confirmed | retracted
 )
 
 @Serializable
@@ -202,7 +204,8 @@ data class EventDetail(
     val analysis: Analysis = Analysis(),
     val notifications: List<NotificationRecord> = emptyList(),
     val escalation: Escalation = Escalation(),
-    val fraud: FraudContext? = null
+    val fraud: FraudContext? = null,
+    val verification_status: String? = null // preliminary | confirmed | retracted
 )
 
 /** 家属端处置：acknowledged | resolved | false_alarm */

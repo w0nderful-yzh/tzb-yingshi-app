@@ -265,24 +265,42 @@ class Ys7MonitorService : Service() {
             .build()
 
     private fun showRiskNotification(event: RealtimeRiskEvent) {
+        val notificationId = event.event_id.hashCode()
+        val manager = getSystemService(NotificationManager::class.java)
+        if (event.verification_status == "retracted") {
+            manager.cancel(notificationId)
+            return
+        }
         val intent = Intent(this, MainActivity::class.java)
             .putExtra(MainActivity.EXTRA_EVENT_ID, event.event_id)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pendingIntent = PendingIntent.getActivity(
             this,
-            event.event_id.hashCode(),
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        getSystemService(NotificationManager::class.java).notify(
-            event.event_id.hashCode(),
+        val preliminary = event.verification_status == "preliminary"
+        val title = if (preliminary) {
+            "${event.title}（实时监测中，待确认）"
+        } else {
+            event.title
+        }
+        val priority = if (preliminary) {
+            NotificationCompat.PRIORITY_DEFAULT
+        } else {
+            NotificationCompat.PRIORITY_HIGH
+        }
+        manager.notify(
+            notificationId,
             NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_error)
-                .setContentTitle(event.title)
+                .setContentTitle(title)
                 .setContentText(event.summary)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(event.summary))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(priority)
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
                 .setContentIntent(pendingIntent)
                 .build(),
         )
