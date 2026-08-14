@@ -217,4 +217,7 @@ def test_media_status_endpoint_defaults_to_disabled(client: object) -> None:
         "partials_failed": 0,
         "reconnect_attempts": 0,
         "last_error": None,
+        "models_ready": "DISABLED",
+        "classifier_ready": True,
+        "warmup_error": None,
     }

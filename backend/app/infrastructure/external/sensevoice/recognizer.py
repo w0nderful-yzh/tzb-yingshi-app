@@ -1,6 +1,8 @@
 import re
 import threading
+import wave
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -147,6 +149,32 @@ class SenseVoiceRecognizer:
                 disable_update=True,
             )
             return self._model
+
+    def warmup(self) -> None:
+        """Load the model and run one minimal silent inference pass.
+
+        Failures propagate to the caller so startup can record a FAILED state;
+        the recognizer still works lazily on first real request.
+        """
+        model = self._get_model()
+        silence = BytesIO()
+        with wave.open(silence, "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(16_000)
+            output.writeframes(b"\x00\x00" * 16_000)
+        with TemporaryDirectory(prefix="sensevoice-warmup-") as directory:
+            audio_path = Path(directory) / "warmup.wav"
+            audio_path.write_bytes(silence.getvalue())
+            with self._inference_lock:
+                model.generate(
+                    input=str(audio_path),
+                    cache={},
+                    language="auto",
+                    use_itn=True,
+                    batch_size_s=60,
+                    disable_pbar=True,
+                )
 
     def transcribe_wav(
         self,

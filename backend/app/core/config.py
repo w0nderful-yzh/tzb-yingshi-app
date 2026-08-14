@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     fraud_llm_vision_enabled: bool = False
     fraud_llm_max_images: int = Field(default=4, ge=1, le=8)
     fraud_latency_trace_enabled: bool = False
+    fraud_classifier_warmup_enabled: bool = True
+    sensevoice_warmup_enabled: bool = True
+    streaming_asr_warmup_enabled: bool = True
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
@@ -81,6 +84,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
 
 
 @lru_cache

@@ -70,6 +70,32 @@ class ParaformerStreamingRecognizer:
             )
             return self._model
 
+    def warmup(self) -> None:
+        """Load the model and run one final silent chunk through the encoder.
+
+        Failures propagate so startup can record a FAILED state; the adapter
+        still lazily loads on the first real session.
+        """
+        model = self._get_model()
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise SpeechRecognitionUnavailableError(
+                "NumPy is required for streaming speech recognition"
+            ) from exc
+        samples = np.zeros(16_000, dtype=np.float32)
+        with self._inference_lock:
+            model.generate(
+                input=samples,
+                cache={},
+                is_final=True,
+                chunk_size=[0, 10, 5],
+                encoder_chunk_look_back=4,
+                decoder_chunk_look_back=1,
+                hotword=self._hotwords,
+                disable_pbar=True,
+            )
+
     def _generate(self, pcm: bytes, *, cache: dict[str, Any], is_final: bool) -> str:
         try:
             import numpy as np

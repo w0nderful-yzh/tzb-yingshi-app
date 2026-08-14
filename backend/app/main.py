@@ -31,8 +31,10 @@ from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.latency import configure_tracing
 from app.modules.fraud.llm import FraudLlmJudge, FraudLlmReviewQueue
+from app.modules.fraud.model_readiness import ModelReadinessTracker, warmup_models
 from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
+from app.modules.fraud.text_classifier import get_default_classifier
 from app.modules.fraud.visual_event_store import VisualEventStore
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
 from app.workers.ys7_alarm_poll_worker import Ys7AlarmPollWorker
@@ -201,9 +203,24 @@ def create_app(
             "app-pcm-relay://live" if runtime_settings.ys7_media_source == "app_relay" else None
         ),
     )
+    model_readiness = ModelReadinessTracker()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await warmup_models(
+            readiness=model_readiness,
+            classifier_warmup_enabled=runtime_settings.fraud_classifier_warmup_enabled,
+            sensevoice_warmup_enabled=(
+                runtime_settings.sensevoice_warmup_enabled and runtime_settings.sensevoice_enabled
+            ),
+            streaming_warmup_enabled=(
+                runtime_settings.streaming_asr_warmup_enabled
+                and runtime_settings.streaming_asr_enabled
+            ),
+            classifier_loader=get_default_classifier,
+            sensevoice_recognizer=runtime_speech_recognizer,
+            streaming_recognizer=runtime_streaming_recognizer,
+        )
         if database is not None:
             await database.ping()
         try:
@@ -253,6 +270,7 @@ def create_app(
     application.state.fraud_audio_service = fraud_audio_service
     application.state.fraud_llm_configured = llm_configured
     application.state.fraud_llm_worker = llm_worker
+    application.state.model_readiness = model_readiness
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix="/api/v1")
