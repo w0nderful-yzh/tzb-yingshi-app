@@ -15,10 +15,11 @@ from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.latency import (
     FraudLatencyTrace,
     finish_trace,
+    privacy_digest,
     record_span,
     start_trace,
 )
-from app.modules.fraud.schemas import FraudAudioChunkRequest
+from app.modules.fraud.schemas import FraudAnalyzeData, FraudAudioChunkRequest
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.voice_activity import FRAME_MS, VoiceActivitySegmenter, VoiceSegment
 
@@ -124,6 +125,7 @@ class Ys7MediaStreamWorker:
         self.final_dropped = 0
         self._chunk_sequence = 0
         self._utterance_sequence = 0
+        self._partial_signals: dict[str, tuple[str, frozenset[str]]] = {}
 
     @property
     def running(self) -> bool:
@@ -421,6 +423,7 @@ class Ys7MediaStreamWorker:
                 )
                 if result is not None:
                     self.partials_processed += 1
+                    self._log_partial_signal(job, result, queue_wait_ms)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -433,6 +436,30 @@ class Ys7MediaStreamWorker:
                 self._streaming_queue.task_done()
                 finish_trace(trace)
 
+    def _log_partial_signal(
+        self,
+        job: _QueuedStreamingPcm,
+        result: FraudAnalyzeData,
+        queue_wait_ms: float,
+    ) -> None:
+        observations = result.speech_event.get("evidence_observations") or []
+        signal = (
+            result.risk.state,
+            frozenset(str(item.get("kind")) for item in observations if isinstance(item, dict)),
+        )
+        if self._partial_signals.get(job.event_id) == signal:
+            return
+        self._partial_signals[job.event_id] = signal
+        kinds = ",".join(sorted(signal[1])) or "-"
+        logger.info(
+            "fraud_partial event=%s session=%s wait=%.0fms state=%s kinds=%s",
+            privacy_digest(job.event_id),
+            privacy_digest(job.session_id),
+            queue_wait_ms,
+            signal[0],
+            kinds,
+        )
+
     async def _run_final_analysis(self) -> None:
         while True:
             job = await self._final_queue.get()
@@ -442,7 +469,7 @@ class Ys7MediaStreamWorker:
             try:
                 if self._device_serial is None:
                     continue
-                await self._fraud_audio_service.analyze_chunk(
+                chunk_result = await self._fraud_audio_service.analyze_chunk(
                     FraudAudioChunkRequest(
                         session_id=job.session_id,
                         chunk_id=job.chunk_id,
@@ -454,6 +481,20 @@ class Ys7MediaStreamWorker:
                     pcm16_mono_to_wav(job.pcm),
                 )
                 self.chunks_processed += 1
+                if job.replaces_source_event_id is not None:
+                    self._partial_signals.pop(job.replaces_source_event_id, None)
+                if chunk_result.transcript_segments:
+                    state = chunk_result.risk.state if chunk_result.risk is not None else "S0"
+                    logger.info(
+                        "fraud_final chunk=%s session=%s wait=%.0fms state=%s segments=%d "
+                        "total_chunks=%d",
+                        privacy_digest(job.chunk_id),
+                        privacy_digest(job.session_id),
+                        queue_wait_ms,
+                        state,
+                        len(chunk_result.transcript_segments),
+                        self.chunks_processed,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
