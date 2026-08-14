@@ -181,8 +181,8 @@ async def test_media_worker_revises_streaming_partial_with_final_transcript() ->
     )
 
     await worker.start()
-    for _ in range(100):
-        if worker.chunks_processed == 1:
+    for _ in range(200):
+        if worker.chunks_processed == 1 and worker.partials_processed == 2:
             break
         await asyncio.sleep(0.01)
     session_id = worker.session_id

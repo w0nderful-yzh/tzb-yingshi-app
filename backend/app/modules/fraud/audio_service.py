@@ -44,7 +44,15 @@ class FraudAudioService:
         self._results: dict[tuple[str, str, str], FraudAudioChunkData] = {}
         self._transcript_history: dict[tuple[str, str], list[TranscriptSegment]] = {}
         self._streaming_states: dict[str, _StreamingState] = {}
-        self._lock = asyncio.Lock()
+        self._streaming_locks: dict[str, asyncio.Lock] = {}
+        self._chunk_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+        self._history_lock = asyncio.Lock()
+
+    def _streaming_lock(self, source_event_id: str) -> asyncio.Lock:
+        return self._streaming_locks.setdefault(source_event_id, asyncio.Lock())
+
+    def _chunk_lock(self, key: tuple[str, str, str]) -> asyncio.Lock:
+        return self._chunk_locks.setdefault(key, asyncio.Lock())
 
     @property
     def streaming_enabled(self) -> bool:
@@ -70,7 +78,8 @@ class FraudAudioService:
             transcript_status="PARTIAL",
         )
         try:
-            async with self._lock:
+            lock = self._streaming_lock(source_event_id)
+            async with lock:
                 state = self._streaming_states.get(source_event_id)
                 if state is None:
                     state = _StreamingState(self._streaming_recognizer.create_session())
@@ -85,6 +94,7 @@ class FraudAudioService:
                     )
                 if is_final:
                     self._streaming_states.pop(source_event_id, None)
+                    self._streaming_locks.pop(source_event_id, None)
                 normalized = text.strip()
                 if not normalized or normalized == state.last_text:
                     return None
@@ -117,7 +127,8 @@ class FraudAudioService:
         )
         try:
             key = (metadata.device_id, metadata.session_id, metadata.chunk_id)
-            async with self._lock:
+            lock = self._chunk_lock(key)
+            async with lock:
                 existing = self._results.get(key)
                 if existing is not None:
                     return existing.model_copy(update={"status": "duplicate"})
@@ -156,7 +167,7 @@ class FraudAudioService:
                         emotion=segment.emotion,
                         audio_events=list(segment.audio_events),
                     )
-                    if self._is_overlapping_duplicate(metadata, transcript_segment):
+                    if await self._is_overlapping_duplicate(metadata, transcript_segment):
                         continue
                     fraud_result = await self._fraud_session_service.analyze(
                         FraudAnalyzeRequest(
@@ -175,7 +186,7 @@ class FraudAudioService:
                     )
                     latest_risk = fraud_result.risk
                     transcript_segments.append(transcript_segment)
-                    self._remember_transcript(metadata, transcript_segment)
+                    await self._remember_transcript(metadata, transcript_segment)
 
                 if latest_risk is None:
                     latest_risk = await self._fraud_session_service.get_session(
@@ -194,13 +205,14 @@ class FraudAudioService:
         finally:
             finish_trace(trace)
 
-    def _is_overlapping_duplicate(
+    async def _is_overlapping_duplicate(
         self,
         metadata: FraudAudioChunkRequest,
         candidate: TranscriptSegment,
     ) -> bool:
         key = (metadata.device_id, metadata.session_id)
-        history = self._transcript_history.get(key, [])
+        async with self._history_lock:
+            history = list(self._transcript_history.get(key, []))
         candidate_text = re.sub(r"[\W_]+", "", candidate.text)
         if not candidate_text:
             return False
@@ -215,13 +227,14 @@ class FraudAudioService:
                 return True
         return False
 
-    def _remember_transcript(
+    async def _remember_transcript(
         self,
         metadata: FraudAudioChunkRequest,
         segment: TranscriptSegment,
     ) -> None:
         key = (metadata.device_id, metadata.session_id)
-        cutoff = segment.occurred_at - timedelta(seconds=120)
-        history = self._transcript_history.setdefault(key, [])
-        history[:] = [item for item in history if item.ended_at >= cutoff]
-        history.append(segment)
+        async with self._history_lock:
+            cutoff = segment.occurred_at - timedelta(seconds=120)
+            history = self._transcript_history.setdefault(key, [])
+            history[:] = [item for item in history if item.ended_at >= cutoff]
+            history.append(segment)

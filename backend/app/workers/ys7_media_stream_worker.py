@@ -23,8 +23,8 @@ from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.voice_activity import FRAME_MS, VoiceActivitySegmenter, VoiceSegment
 
 logger = logging.getLogger(__name__)
-STREAMING_CHUNK_MS = 600
-STREAMING_CHUNK_BYTES = 16_000 * 2 * STREAMING_CHUNK_MS // 1_000
+DEFAULT_STREAMING_CHUNK_MS = 600
+DEFAULT_STREAMING_CHUNK_BYTES = 16_000 * 2 * DEFAULT_STREAMING_CHUNK_MS // 1_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +82,9 @@ class Ys7MediaStreamWorker:
         queue_maxsize: int,
         elder_alone: bool,
         vad_mode: int = 2,
+        vad_speech_start_ms: int = 200,
+        vad_silence_end_ms: int = 700,
+        streaming_chunk_ms: int = DEFAULT_STREAMING_CHUNK_MS,
         voice_detector: Callable[[bytes], bool] | None = None,
         session_tracker: FraudSessionTracker | None = None,
         stream_url: str | None = None,
@@ -95,12 +98,21 @@ class Ys7MediaStreamWorker:
         self._quality = quality
         self._elder_alone = elder_alone
         self._vad_mode = vad_mode
+        self._vad_speech_start_ms = vad_speech_start_ms
+        self._vad_silence_end_ms = vad_silence_end_ms
         self._voice_detector = voice_detector
         self._session_tracker = session_tracker or FraudSessionTracker()
         self._stream_url = stream_url
-        self._queue: asyncio.Queue[_AnalysisJob] = asyncio.Queue(maxsize=queue_maxsize)
+        if streaming_chunk_ms % 20 != 0:
+            raise ValueError("streaming_chunk_ms must be a multiple of the 20 ms frame")
+        self._streaming_chunk_bytes = 16_000 * 2 * streaming_chunk_ms // 1_000
+        self._streaming_queue: asyncio.Queue[_QueuedStreamingPcm] = asyncio.Queue(
+            maxsize=queue_maxsize
+        )
+        self._final_queue: asyncio.Queue[_QueuedPcmChunk] = asyncio.Queue(maxsize=queue_maxsize)
         self._stream_task: asyncio.Task[None] | None = None
-        self._analysis_task: asyncio.Task[None] | None = None
+        self._streaming_analysis_task: asyncio.Task[None] | None = None
+        self._final_analysis_task: asyncio.Task[None] | None = None
         self.connected = False
         self.last_error: str | None = None
         self.reconnect_attempts = 0
@@ -108,6 +120,8 @@ class Ys7MediaStreamWorker:
         self.chunks_dropped = 0
         self.partials_processed = 0
         self.partials_failed = 0
+        self.partials_dropped = 0
+        self.final_dropped = 0
         self._chunk_sequence = 0
         self._utterance_sequence = 0
 
@@ -121,7 +135,7 @@ class Ys7MediaStreamWorker:
 
     @property
     def queue_depth(self) -> int:
-        return self._queue.qsize()
+        return self._streaming_queue.qsize() + self._final_queue.qsize()
 
     async def start(self) -> None:
         if self.running:
@@ -130,13 +144,25 @@ class Ys7MediaStreamWorker:
             self._run_stream(),
             name="ys7-media-stream",
         )
-        self._analysis_task = asyncio.create_task(
-            self._run_analysis(),
-            name="ys7-media-analysis",
+        self._streaming_analysis_task = asyncio.create_task(
+            self._run_streaming_analysis(),
+            name="ys7-media-streaming-analysis",
+        )
+        self._final_analysis_task = asyncio.create_task(
+            self._run_final_analysis(),
+            name="ys7-media-final-analysis",
         )
 
     async def stop(self) -> None:
-        tasks = [task for task in (self._stream_task, self._analysis_task) if task is not None]
+        tasks = [
+            task
+            for task in (
+                self._stream_task,
+                self._streaming_analysis_task,
+                self._final_analysis_task,
+            )
+            if task is not None
+        ]
         for task in tasks:
             task.cancel()
         await self._stream_source.close()
@@ -144,7 +170,8 @@ class Ys7MediaStreamWorker:
             with suppress(asyncio.CancelledError):
                 await task
         self._stream_task = None
-        self._analysis_task = None
+        self._streaming_analysis_task = None
+        self._final_analysis_task = None
         self.connected = False
 
     async def _run_stream(self) -> None:
@@ -155,6 +182,8 @@ class Ys7MediaStreamWorker:
             segmenter = VoiceActivitySegmenter(
                 vad_mode=self._vad_mode,
                 voice_detector=self._voice_detector,
+                speech_start_ms=self._vad_speech_start_ms,
+                silence_end_ms=self._vad_silence_end_ms,
             )
             online: _OnlineUtterance | None = None
             try:
@@ -279,10 +308,10 @@ class Ys7MediaStreamWorker:
         is_final: bool,
     ) -> None:
         minimum_remaining = 1 if is_final else 0
-        while len(utterance.buffer) >= STREAMING_CHUNK_BYTES + minimum_remaining:
-            pcm = bytes(utterance.buffer[:STREAMING_CHUNK_BYTES])
-            del utterance.buffer[:STREAMING_CHUNK_BYTES]
-            self._publish_latest(
+        while len(utterance.buffer) >= self._streaming_chunk_bytes + minimum_remaining:
+            pcm = bytes(utterance.buffer[: self._streaming_chunk_bytes])
+            del utterance.buffer[: self._streaming_chunk_bytes]
+            self._publish_streaming(
                 _QueuedStreamingPcm(
                     event_id=utterance.event_id,
                     session_id=utterance.session_id,
@@ -292,7 +321,7 @@ class Ys7MediaStreamWorker:
                 )
             )
         if is_final and utterance.buffer:
-            self._publish_latest(
+            self._publish_streaming(
                 _QueuedStreamingPcm(
                     event_id=utterance.event_id,
                     session_id=utterance.session_id,
@@ -322,7 +351,7 @@ class Ys7MediaStreamWorker:
             started_at=started_at,
             ended_at=started_at + timedelta(milliseconds=duration_ms),
         )
-        self._publish_latest(
+        self._publish_final(
             _QueuedPcmChunk(
                 chunk_id=f"stream-{self._chunk_sequence:09d}",
                 session_id=session_id,
@@ -332,13 +361,30 @@ class Ys7MediaStreamWorker:
             )
         )
 
-    def _publish_latest(self, chunk: _AnalysisJob) -> None:
-        if self._queue.full():
+    def _publish_streaming(self, chunk: _QueuedStreamingPcm) -> None:
+        if self._streaming_queue.full():
             with suppress(asyncio.QueueEmpty):
-                self._queue.get_nowait()
-                self._queue.task_done()
+                self._streaming_queue.get_nowait()
+                self._streaming_queue.task_done()
+                self.partials_dropped += 1
+                logger.warning(
+                    "dropping PARTIAL chunk: streaming queue full",
+                    extra={"event_digest": chunk.event_id[:16]},
+                )
+        self._streaming_queue.put_nowait(chunk)
+
+    def _publish_final(self, chunk: _QueuedPcmChunk) -> None:
+        if self._final_queue.full():
+            with suppress(asyncio.QueueEmpty):
+                self._final_queue.get_nowait()
+                self._final_queue.task_done()
+                self.final_dropped += 1
                 self.chunks_dropped += 1
-        self._queue.put_nowait(chunk)
+                logger.warning(
+                    "dropping FINAL chunk: final queue full",
+                    extra={"chunk_id": chunk.chunk_id},
+                )
+        self._final_queue.put_nowait(chunk)
 
     def _start_job_trace(self, job: _AnalysisJob) -> FraudLatencyTrace | None:
         if isinstance(job, _QueuedStreamingPcm):
@@ -355,27 +401,46 @@ class Ys7MediaStreamWorker:
             transcript_status="FINAL",
         )
 
-    async def _run_analysis(self) -> None:
+    async def _run_streaming_analysis(self) -> None:
         while True:
-            job = await self._queue.get()
+            job = await self._streaming_queue.get()
             queue_wait_ms = (time.monotonic_ns() - job.enqueued_ns) / 1_000_000
             trace = self._start_job_trace(job)
             record_span("queue_wait", queue_wait_ms)
             try:
                 if self._device_serial is None:
                     continue
-                if isinstance(job, _QueuedStreamingPcm):
-                    result = await self._fraud_audio_service.analyze_streaming_pcm(
-                        session_id=job.session_id,
-                        source_event_id=job.event_id,
-                        device_id=self._device_serial,
-                        started_at=job.started_at,
-                        elder_alone=self._elder_alone,
-                        pcm=job.pcm,
-                        is_final=job.is_final,
-                    )
-                    if result is not None:
-                        self.partials_processed += 1
+                result = await self._fraud_audio_service.analyze_streaming_pcm(
+                    session_id=job.session_id,
+                    source_event_id=job.event_id,
+                    device_id=self._device_serial,
+                    started_at=job.started_at,
+                    elder_alone=self._elder_alone,
+                    pcm=job.pcm,
+                    is_final=job.is_final,
+                )
+                if result is not None:
+                    self.partials_processed += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.partials_failed += 1
+                logger.exception(
+                    "Failed to analyze PARTIAL audio chunk",
+                    extra={"event_id": job.event_id},
+                )
+            finally:
+                self._streaming_queue.task_done()
+                finish_trace(trace)
+
+    async def _run_final_analysis(self) -> None:
+        while True:
+            job = await self._final_queue.get()
+            queue_wait_ms = (time.monotonic_ns() - job.enqueued_ns) / 1_000_000
+            trace = self._start_job_trace(job)
+            record_span("queue_wait", queue_wait_ms)
+            try:
+                if self._device_serial is None:
                     continue
                 await self._fraud_audio_service.analyze_chunk(
                     FraudAudioChunkRequest(
@@ -392,16 +457,10 @@ class Ys7MediaStreamWorker:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                if isinstance(job, _QueuedStreamingPcm):
-                    self.partials_failed += 1
                 logger.exception(
-                    "Failed to analyze YS7 audio chunk",
-                    extra={
-                        "chunk_id": (
-                            job.event_id if isinstance(job, _QueuedStreamingPcm) else job.chunk_id
-                        )
-                    },
+                    "Failed to analyze FINAL audio chunk",
+                    extra={"chunk_id": job.chunk_id},
                 )
             finally:
-                self._queue.task_done()
+                self._final_queue.task_done()
                 finish_trace(trace)

@@ -204,6 +204,9 @@ def create_app(
         queue_maxsize=runtime_settings.ys7_media_queue_maxsize,
         elder_alone=runtime_settings.ys7_elder_alone,
         vad_mode=runtime_settings.ys7_vad_mode,
+        vad_speech_start_ms=runtime_settings.ys7_vad_speech_start_ms,
+        vad_silence_end_ms=runtime_settings.ys7_vad_silence_end_ms,
+        streaming_chunk_ms=runtime_settings.streaming_chunk_ms,
         session_tracker=fraud_session_tracker,
         stream_url=(
             "app-pcm-relay://live" if runtime_settings.ys7_media_source == "app_relay" else None
