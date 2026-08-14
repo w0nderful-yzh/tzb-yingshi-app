@@ -1,10 +1,10 @@
 # 防诈模块
 
-时效性、准确性、PARTIAL 两级预警和 RTX 4060 部署的分阶段实现路径见[防诈时效性与准确性优化实施路线图](../architecture/fraud-latency-accuracy-optimization.md)。该路线图属于实施规划，未完成阶段不得写成当前能力。
+时效性、准确性、PARTIAL 两级预警和 RTX 4060 部署的分阶段实现路径见[防诈时效性与准确性优化实施路线图](../architecture/fraud-latency-accuracy-optimization.md)。该路线图属于实施进度跟踪，未完成阶段（含 `[GPU·待同事]`、`[⏳ 条件未满足·暂缓]` 项）不得写成当前能力。
 
 ## 当前状态
 
-当前最终方案是“音频主判、视觉增强、分层决策、独立会话”：FFmpeg 连续解码萤石音轨，WebRTC VAD 按自然停顿切句；讲话期间 Paraformer Streaming 每 600 ms 更新部分转写，停顿后 SenseVoiceSmall 对完整语句生成最终转写和富标签。部分结果只负责 S1-S2 早期判断，当前不产生家属通知；最终结果才允许进入 S3-S5。规则、校准轻量分类器和 S0-S5 状态机同步完成本地判断，S2-S4 可异步进入 LLM 复核；LLM 不可用时不影响本地链路。
+当前最终方案是“音频主判、视觉增强、分层决策、独立会话”：FFmpeg 连续解码萤石音轨，WebRTC VAD 按自然停顿切句；讲话期间 Paraformer Streaming 每 600 ms 更新部分转写，停顿后 SenseVoiceSmall 对完整语句生成最终转写和富标签。部分结果只负责 S1-S2 早期判断，默认不产生家属通知（开启 `APP_FRAUD_PRELIMINARY_ALERT_ENABLED` 后，连续强动作命中可先发 PRELIMINARY 待确认提醒）；最终结果才允许进入 S3-S5。规则、校准轻量分类器和 S0-S5 状态机同步完成本地判断，S2-S4 可异步进入 LLM 复核；LLM 不可用时不影响本地链路。
 
 视觉事件只提供通话、访客、人数和独处等场景事实，不从画面猜测诈骗语义。单次人员出现不升级状态；持续访客证据只有与强语音动作共同出现时才可增强升级。
 
@@ -14,7 +14,7 @@
 - 事件发生时间和服务端接收时间分离；
 - 原始消息保存、消息 ID 去重和后台消费；
 - 按设备查询统一视觉事件；
-- 按设备和会话维护 120 秒有序证据窗口，支持语音片段乱序重放；
+- 按设备和会话维护分阶段证据窗口（contact 300s / probing 180s / action 120s / control 120s / protective 300s / context 120s，带时间衰减），支持语音片段乱序重放；
 - 按 `source_event_id` 幂等接收转写片段；
 - 按设备、会话和 `chunk_id` 幂等接收短 WAV 音频块；
 - SenseVoiceSmall 懒加载、串行推理和异常隔离，推理不占用 FastAPI 事件循环；
@@ -41,7 +41,13 @@
 - LLM 输出使用严格 JSON，证据必须逐字引用转写原文，无法定位的引用会被丢弃；
 - LLM 证据强度上限为 `medium`，不能单独推动 S4/S5；服务超时或失败自动降级；
 - 非 S0 结果按设备和会话幂等写入 PostgreSQL `risk_events`；
-- 萤石接收功能关闭时，FastAPI 其他接口正常启动。
+- 萤石接收功能关闭时，FastAPI 其他接口正常启动；
+- 启动预热分类器与 ASR 模型（`APP_FRAUD_CLASSIFIER_WARMUP_ENABLED` / `APP_SENSEVOICE_WARMUP_ENABLED` / `APP_STREAMING_ASR_WARMUP_ENABLED`），失败自动降级懒加载，媒体状态接口暴露 `models_ready` / `classifier_ready` / `warmup_error`；
+- PARTIAL 两级预警（默认关闭）：连续两次同 kind 强动作（`credential_request` / `remote_control_instruction` / `money_instruction`，融合置信度≥0.90）写 PRELIMINARY 事件（REMINDER + OPEN），FINAL 按 `state_index` 确认或系统撤回，`partial_stability` 随会话持久化保证重启幂等；
+- 媒体分析拆分为 streaming 与 final 两个有界队列与独立消费任务，`FraudAudioService` 按会话/FINAL 块/转写历史拆分锁，积压丢弃按任务类型记录原因；
+- VAD 参数可配置（`APP_YS7_VAD_SPEECH_START_MS` / `APP_YS7_VAD_SILENCE_END_MS` / `APP_STREAMING_CHUNK_MS`，强制 20ms 整数倍）；
+- 分阶段证据窗口与时间衰减（contact 300s / probing 180s / action 120s / control 120s / protective 300s / context 120s），原始与衰减后置信度都保留在证据链；
+- 固定评测集与离线评测脚本（`evaluate_fraud_model.py`）、FALSE_ALARM 脱敏反馈导出（`export_fraud_feedback.py`）；语义检索与近期风险画像端口就绪，默认关闭。
 
 ## 决策链
 
@@ -100,7 +106,7 @@ cd backend
 uv sync --extra sensevoice --dev
 ```
 
-首次真实推理会下载 `paraformer-zh-streaming` 和 `iic/SenseVoiceSmall` 模型。两个识别器都采用懒加载；开发测试通过注入假实现运行，不依赖网络和模型权重。
+首次真实推理会下载 `paraformer-zh-streaming` 和 `iic/SenseVoiceSmall` 模型。两个识别器都是懒加载并支持启动预热（`APP_SENSEVOICE_WARMUP_ENABLED` / `APP_STREAMING_ASR_WARMUP_ENABLED`，预热失败自动降级懒加载）；开发测试通过注入假实现运行，不依赖网络和模型权重。
 
 ```env
 APP_SENSEVOICE_ENABLED=true
