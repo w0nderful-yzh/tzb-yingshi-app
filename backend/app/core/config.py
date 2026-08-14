@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     fraud_classifier_warmup_enabled: bool = True
     sensevoice_warmup_enabled: bool = True
     streaming_asr_warmup_enabled: bool = True
+    fraud_preliminary_alert_enabled: bool = False
+    fraud_preliminary_min_confidence: float = Field(default=0.90, ge=0.0, le=1.0)
+    fraud_preliminary_stable_revisions: int = Field(default=2, ge=1, le=10)
+    fraud_preliminary_confirm_min_state_index: int = Field(default=2, ge=0, le=5)
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

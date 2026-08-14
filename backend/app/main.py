@@ -111,6 +111,12 @@ def create_app(
         llm_vision_enabled=runtime_settings.fraud_llm_vision_enabled,
         llm_max_images=runtime_settings.fraud_llm_max_images,
         session_store=fraud_session_repository,
+        preliminary_alert_enabled=runtime_settings.fraud_preliminary_alert_enabled,
+        preliminary_min_confidence=runtime_settings.fraud_preliminary_min_confidence,
+        preliminary_stable_revisions=runtime_settings.fraud_preliminary_stable_revisions,
+        preliminary_confirm_min_state_index=(
+            runtime_settings.fraud_preliminary_confirm_min_state_index
+        ),
     )
     llm_worker = (
         FraudLlmReviewWorker(

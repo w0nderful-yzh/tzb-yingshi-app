@@ -111,6 +111,14 @@ class CapturingRiskSink:
     async def upsert(self, event: FraudRiskEventWrite) -> None:
         self.events.append(event)
 
+    async def retract_preliminary(
+        self,
+        *,
+        source_event_id: str,
+        reason: str,
+    ) -> None:
+        pass
+
 
 @pytest.mark.asyncio
 async def test_media_worker_converts_pcm_and_calls_fraud_audio_service() -> None:

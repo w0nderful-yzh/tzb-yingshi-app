@@ -83,6 +83,7 @@ class RiskEventItem(BaseModel):
     fraud_state_index: int | None = Field(default=None, ge=0, le=5)
     fraud_state_label: str | None = None
     fraud_decision: str | None = None
+    verification_status: Literal["preliminary", "confirmed", "retracted"] | None = None
 
 
 class EventListData(BaseModel):
@@ -138,6 +139,7 @@ class EventDetailData(BaseModel):
     notifications: list[NotificationItem]
     escalation: EscalationData
     fraud: FraudContextData | None = None
+    verification_status: Literal["preliminary", "confirmed", "retracted"] | None = None
 
 
 class SosRequest(BaseModel):
