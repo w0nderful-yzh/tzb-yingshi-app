@@ -29,10 +29,18 @@ class VoiceActivitySegmenter:
         *,
         vad_mode: int = 2,
         voice_detector: Callable[[bytes], bool] | None = None,
+        speech_start_ms: int = SPEECH_START_MS,
+        silence_end_ms: int = SILENCE_END_MS,
     ) -> None:
+        if speech_start_ms % FRAME_MS != 0 or silence_end_ms % FRAME_MS != 0:
+            raise ValueError("VAD timing parameters must be multiples of the 20 ms frame")
+        if not 20 <= speech_start_ms <= 1_000:
+            raise ValueError("speech_start_ms must be between 20 and 1000 ms")
+        if not 100 <= silence_end_ms <= 5_000:
+            raise ValueError("silence_end_ms must be between 100 and 5000 ms")
         self._frame_bytes = SAMPLE_RATE * 2 * FRAME_MS // 1_000
-        self._speech_start_frames = SPEECH_START_MS // FRAME_MS
-        self._silence_end_frames = SILENCE_END_MS // FRAME_MS
+        self._speech_start_frames = speech_start_ms // FRAME_MS
+        self._silence_end_frames = silence_end_ms // FRAME_MS
         self._pre_roll_frames = PRE_ROLL_MS // FRAME_MS
         self._post_roll_frames = POST_ROLL_MS // FRAME_MS
         self._max_segment_frames = MAX_SEGMENT_MS // FRAME_MS

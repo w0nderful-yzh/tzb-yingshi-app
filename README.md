@@ -130,7 +130,14 @@ uv run uvicorn app.main:app --reload
 - OpenAPI 文档：`http://127.0.0.1:8000/docs`
 - ReDoc 文档：`http://127.0.0.1:8000/redoc`
 
-本地 Demo 种子会创建可配置的登录账号，默认家属端账号为 `guardian / guardian123`。姓名、账号和密码均可通过根目录 `.env` 的 `APP_DEMO_GUARDIAN_*`、`APP_DEMO_ELDER_*` 配置修改；App 页面从登录用户和守护关系读取姓名，不再使用客户端固定姓名。
+本地 Demo 种子会创建可配置的登录账号：
+
+| 端 | 账号 | 密码 |
+|---|---|---|
+| 家属端 | `guardian` | `guardian123` |
+| 老人端 | `elder` | `elder123` |
+
+姓名、账号和密码均可通过根目录 `.env` 的 `APP_DEMO_GUARDIAN_*`、`APP_DEMO_ELDER_*` 配置修改；修改后需重启后端并重新执行 `docker compose exec backend uv run --no-sync python -m app.scripts.seed_demo` 刷新种子。App 页面从登录用户和守护关系读取姓名，不再使用客户端固定姓名。
 
 后端提交前检查：
 

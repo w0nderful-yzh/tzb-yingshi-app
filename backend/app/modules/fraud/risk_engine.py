@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
+from app.modules.fraud.evidence_decay import MAX_WINDOW_MS, apply_stage_windows
 from app.modules.fraud.fraud_evidence import extract_speech_evidence
 from app.modules.fraud.fraud_state_machine import FraudProcessStateMachine
 from app.modules.fraud.schemas import FraudRiskSnapshot, VisualEvent
@@ -162,7 +163,7 @@ def build_risk_snapshot(
 
     ordered_speech = sorted(speech_events, key=lambda item: int(item["start_ms"]))
     at_ms = max(int(item["end_ms"]) for item in ordered_speech)
-    lower_bound = at_ms - memory_ms
+    lower_bound = at_ms - MAX_WINDOW_MS
     recent_speech = [event for event in ordered_speech if int(event["end_ms"]) >= lower_bound]
     evidence = _visual_evidence(
         visual_events,
@@ -184,8 +185,9 @@ def build_risk_snapshot(
             str(item["evidence_id"]),
         )
     )
+    evidence = apply_stage_windows(evidence, at_ms=at_ms)
 
-    machine = FraudProcessStateMachine(elder_alone=elder_alone, memory_ms=memory_ms)
+    machine = FraudProcessStateMachine(elder_alone=elder_alone, memory_ms=MAX_WINDOW_MS)
     for item in evidence:
         machine.consume(item)
     snapshot = machine.snapshot()

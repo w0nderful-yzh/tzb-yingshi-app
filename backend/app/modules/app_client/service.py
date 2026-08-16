@@ -86,6 +86,15 @@ def _event_id(event: RiskEventModel) -> str:
     return f"evt_{event.id}"
 
 
+def _verification_status(
+    event: RiskEventModel,
+) -> Literal["preliminary", "confirmed", "retracted"] | None:
+    raw = (event.evidence or {}).get("verification_status")
+    if raw in {"PRELIMINARY", "CONFIRMED", "RETRACTED"}:
+        return cast(Literal["preliminary", "confirmed", "retracted"], str(raw).lower())
+    return None
+
+
 def _parse_event_id(value: str) -> UUID:
     raw = value.removeprefix("evt_")
     try:
@@ -403,6 +412,7 @@ class AppClientService:
             notifications=[],
             escalation=EscalationData(),
             fraud=_fraud_context(event),
+            verification_status=_verification_status(event),
         )
 
     async def create_sos(
@@ -701,6 +711,7 @@ class AppClientService:
             fraud_state_index=fraud.state_index if fraud else None,
             fraud_state_label=fraud.state_label if fraud else None,
             fraud_decision=fraud.decision if fraud else None,
+            verification_status=_verification_status(event),
         )
 
     async def _authorized_event(

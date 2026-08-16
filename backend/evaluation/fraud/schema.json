@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "fraud-evaluation-record",
+  "description": "Fixed schema for committable fraud training and evaluation records. Every field is enforced by backend/app/scripts/evaluate_fraud_model.py and the unit tests in tests/unit/test_fraud_evaluation_schema.py. Same original conversation and its rewrites must share one split_group so no conversation leaks across train/eval sets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text", "labels", "source", "split_group"],
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One utterance transcript, with ASR noise applied when asr_noisy is true."
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "identity_claim",
+          "benefit_lure",
+          "emergency_pretext",
+          "amount_request",
+          "sensitive_info_request",
+          "credential_request",
+          "remote_control_instruction",
+          "money_instruction",
+          "secrecy_control",
+          "urgency_pressure",
+          "protective_warning"
+        ]
+      },
+      "uniqueItems": true,
+      "description": "Expected multi-label evidence kinds. Empty array marks a hard negative."
+    },
+    "source": {
+      "enum": ["curated", "augmented", "recorded"],
+      "description": "curated: hand written; augmented: paraphrased or ASR-noised rewrite; recorded: transcribed real audio with authorization and desensitization."
+    },
+    "scenario": {
+      "type": "string",
+      "description": "Scenario name, e.g. fake_customer_service, impersonating_police, delivery_refund, investment_pension, family_normal_transfer, anti_fraud_publicity."
+    },
+    "split_group": {
+      "type": "string",
+      "pattern": "^conversation-",
+      "description": "Conversation group id. train.jsonl and eval_public.jsonl must not share any split_group value."
+    },
+    "asr_noisy": {
+      "type": "boolean",
+      "default": false,
+      "description": "True when this text is a noisy transcription (homophones, broken phrases) instead of clean writing."
+    },
+    "expected_state": {
+      "type": ["string", "null"],
+      "enum": ["S0_NORMAL", "S1_OBSERVING", "S2_TRUST_BUILDING", "S3_INFORMATION_PROBING", "S4_ACTION_INDUCEMENT", "S5_CRITICAL_CONTROL", null],
+      "default": null,
+      "description": "Optional expected session state after replaying the whole conversation this record belongs to (records sharing a split_group replay in file order)."
+    },
+    "expected_sequence": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": null,
+      "description": "Optional expected conversation-level transcript sequence (record texts) used to order multi-turn splits."
+    }
+  }
+}

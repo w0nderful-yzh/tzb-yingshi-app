@@ -43,6 +43,17 @@ class StreamingSpeechRecognizer(Protocol):
     def create_session(self) -> StreamingRecognitionSession: ...
 
 
+class WarmableRecognizer(Protocol):
+    """Optional lifecycle capability: eagerly load the model before first use.
+
+    Implementations must tolerate repeated calls and never block shutdown.
+    A warmup failure must raise so callers can record a FAILED state, but the
+    recognizer remains usable through its normal lazy loading path.
+    """
+
+    def warmup(self) -> None: ...
+
+
 def validate_wav_chunk(audio: bytes, *, max_duration_ms: int = 15_000) -> int:
     try:
         with wave.open(io.BytesIO(audio), "rb") as source:

@@ -55,6 +55,9 @@ class MediaStatusData(BaseModel):
     partials_failed: int
     reconnect_attempts: int
     last_error: str | None
+    models_ready: Literal["DISABLED", "WARMING_UP", "READY", "FAILED"]
+    classifier_ready: bool
+    warmup_error: str | None
 
 
 def _authorize(request: Request, provided_token: str | None) -> Settings:
@@ -139,6 +142,7 @@ async def get_ys7_status(request: Request) -> ApiResponse[SignalStatusData]:
 async def get_ys7_media_status(request: Request) -> ApiResponse[MediaStatusData]:
     settings: Settings = request.app.state.settings
     worker: Ys7MediaStreamWorker = request.app.state.ys7_media_worker
+    readiness = request.app.state.model_readiness.snapshot()
     return ApiResponse(
         data=MediaStatusData(
             enabled=settings.ys7_media_enabled,
@@ -154,6 +158,9 @@ async def get_ys7_media_status(request: Request) -> ApiResponse[MediaStatusData]
             partials_failed=worker.partials_failed,
             reconnect_attempts=worker.reconnect_attempts,
             last_error=worker.last_error,
+            models_ready=readiness.models_ready,
+            classifier_ready=readiness.classifier_ready,
+            warmup_error=readiness.warmup_error,
         ),
         request_id=get_request_id(request),
     )

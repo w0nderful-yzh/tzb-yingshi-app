@@ -12,6 +12,8 @@ from app.modules.fraud.ports import (
     FraudRiskEventWrite,
     FraudSessionRecord,
     FraudSessionStore,
+    RecentFraudRiskStore,
+    SemanticEvidenceRetriever,
 )
 from app.modules.fraud.risk_engine import (
     RISK_MODEL_NAME,
@@ -19,6 +21,7 @@ from app.modules.fraud.risk_engine import (
     build_risk_snapshot,
     to_epoch_ms,
 )
+from app.modules.fraud.risk_profile import recent_context_evidence
 from app.modules.fraud.schemas import (
     FraudAnalyzeData,
     FraudAnalyzeRequest,
@@ -26,6 +29,11 @@ from app.modules.fraud.schemas import (
 )
 from app.modules.fraud.speech_risk import build_speech_events
 from app.modules.fraud.visual_event_store import VisualEventStore
+
+STRONG_ACTION_KINDS = frozenset(
+    {"credential_request", "remote_control_instruction", "money_instruction"}
+)
+SYSTEM_RETRACT_REASON = "final_transcript_retracted_preliminary"
 
 
 @dataclass(slots=True)
@@ -57,6 +65,12 @@ class FraudSessionService:
         llm_max_images: int = 4,
         memory_ms: int = 120_000,
         session_store: FraudSessionStore | None = None,
+        preliminary_alert_enabled: bool = False,
+        preliminary_min_confidence: float = 0.90,
+        preliminary_stable_revisions: int = 2,
+        preliminary_confirm_min_state_index: int = 2,
+        semantic_retriever: SemanticEvidenceRetriever | None = None,
+        recent_risk_store: RecentFraudRiskStore | None = None,
     ) -> None:
         self._visual_event_store = visual_event_store
         self._risk_event_sink = risk_event_sink
@@ -67,6 +81,12 @@ class FraudSessionService:
         self._llm_max_images = llm_max_images
         self._memory_ms = memory_ms
         self._session_store = session_store
+        self._preliminary_enabled = preliminary_alert_enabled
+        self._preliminary_min_confidence = preliminary_min_confidence
+        self._preliminary_stable_revisions = preliminary_stable_revisions
+        self._preliminary_confirm_min_state_index = preliminary_confirm_min_state_index
+        self._semantic_retriever = semantic_retriever
+        self._recent_risk_store = recent_risk_store
         self._sessions: dict[tuple[str, str], _FraudSession] = {}
         self._lock = asyncio.Lock()
 
@@ -126,6 +146,10 @@ class FraudSessionService:
                         )
                     speech_event = speech_events[0]
                     speech_event["source_event_id"] = payload.source_event_id
+                    if should_update and existing is not None:
+                        stability = existing.get("partial_stability")
+                        if isinstance(stability, dict):
+                            speech_event["partial_stability"] = dict(stability)
                     session.speech_events[payload.source_event_id] = speech_event
                     status: Literal["accepted", "updated", "duplicate"] = (
                         "updated" if should_update else "accepted"
@@ -136,9 +160,10 @@ class FraudSessionService:
 
                 with latency_stage("state_machine"):
                     risk = await self._snapshot(session)
-                if payload.transcript_status == "FINAL" and risk.state != "S0_NORMAL":
-                    with latency_stage("event_persist"):
-                        await self._persist(risk)
+                if payload.transcript_status == "PARTIAL":
+                    await self._maybe_preliminary(session, payload, speech_event, risk)
+                elif payload.transcript_status == "FINAL":
+                    await self._settle_preliminary(session, payload, speech_event, risk)
                 if payload.transcript_status == "FINAL":
                     await self._submit_llm_review(session, risk)
                 with latency_stage("session_persist"):
@@ -250,6 +275,37 @@ class FraudSessionService:
             device_id=session.device_id,
             limit=200,
         )
+        extra_evidence = [dict(item) for item in session.llm_evidence.values()]
+        at_ms = (
+            max(int(event["end_ms"]) for event in session.speech_events.values())
+            if session.speech_events
+            else to_epoch_ms(datetime.now(UTC))
+        )
+        if (
+            self._semantic_retriever is not None
+            and self._semantic_retriever.available
+            and session.speech_events
+        ):
+            transcript = " ".join(
+                str(event.get("text", ""))
+                for event in sorted(
+                    session.speech_events.values(),
+                    key=lambda event: int(event["start_ms"]),
+                )
+            )[:6_000]
+            extra_evidence.extend(
+                await self._semantic_retriever.retrieve(
+                    text=transcript,
+                    session_id=session.session_id,
+                )
+            )
+        if self._recent_risk_store is not None:
+            context = await self._recent_risk_store.load_recent_context(
+                device_id=session.device_id,
+                session_id=session.session_id,
+            )
+            if context is not None:
+                extra_evidence.extend(recent_context_evidence(context, at_ms=at_ms))
         return build_risk_snapshot(
             session_id=session.session_id,
             device_id=session.device_id,
@@ -257,7 +313,7 @@ class FraudSessionService:
             visual_events=visual_events,
             elder_alone=session.elder_alone,
             memory_ms=self._memory_ms,
-            extra_evidence=list(session.llm_evidence.values()),
+            extra_evidence=extra_evidence,
         )
 
     async def _submit_llm_review(
@@ -366,21 +422,157 @@ class FraudSessionService:
         if submitted:
             session.last_llm_review_id = review_id
 
-    async def _persist(self, risk: FraudRiskSnapshot) -> None:
+    async def _maybe_preliminary(
+        self,
+        session: _FraudSession,
+        payload: FraudAnalyzeRequest,
+        speech_event: dict[str, Any],
+        risk: FraudRiskSnapshot,
+    ) -> None:
+        """Decide whether consecutive strong-action PARTIALs create a PRELIMINARY.
+
+        Only strong action evidence above the confidence gate and free of
+        protective evidence may trigger. Stability metadata lives on the
+        speech event inside fraud_sessions JSONB so a process restart restores
+        the same revision count and never creates a duplicate PRELIMINARY.
+        """
+        if not self._preliminary_enabled:
+            return
+        observations = speech_event.get("evidence_observations") or []
+        if any(str(item.get("polarity")) == "protective" for item in observations):
+            self._reset_partial_stability(speech_event)
+            return
+        strong = [
+            item
+            for item in observations
+            if str(item.get("stage")) == "action"
+            and str(item.get("strength")) == "strong"
+            and str(item.get("kind")) in STRONG_ACTION_KINDS
+            and float(item.get("confidence", 0.0)) >= self._preliminary_min_confidence
+        ]
+        if not strong:
+            self._reset_partial_stability(speech_event)
+            return
+        kind = str(max(strong, key=lambda item: float(item.get("confidence", 0.0)))["kind"])
+        stability = speech_event.get("partial_stability")
+        previous = dict(stability) if isinstance(stability, dict) else {}
+        if previous.get("candidate_kind") == kind:
+            revisions = int(previous.get("revisions", 0)) + 1
+        else:
+            revisions = 1
+        preliminary_created = bool(previous.get("preliminary_created"))
+        speech_event["partial_stability"] = {
+            "revisions": revisions,
+            "candidate_kind": kind,
+            "preliminary_created": preliminary_created,
+        }
+        if revisions < self._preliminary_stable_revisions or preliminary_created:
+            return
+        speech_event["partial_stability"]["preliminary_created"] = True
+        evidence = risk.model_dump(mode="json")
+        evidence.update(
+            {
+                "verification_status": "PRELIMINARY",
+                "preliminary_source_event_id": payload.source_event_id,
+                "preliminary_kind": kind,
+                "preliminary_created_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        with latency_stage("event_persist"):
+            await self._persist(
+                risk,
+                source_event_id=payload.source_event_id,
+                verification_status="PRELIMINARY",
+                evidence=evidence,
+            )
+
+    async def _settle_preliminary(
+        self,
+        session: _FraudSession,
+        payload: FraudAnalyzeRequest,
+        speech_event: dict[str, Any],
+        risk: FraudRiskSnapshot,
+    ) -> None:
+        """Confirm or retract a PRELIMINARY once the FINAL transcript arrives.
+
+        FINAL state >= confirm threshold confirms the same event with the
+        formal S2-S5 level; FINAL falling back below threshold retracts it
+        (system RESOLVE action, actor empty). Turns without a PRELIMINARY keep
+        the existing session-level risk event behaviour.
+        """
+        stability = speech_event.get("partial_stability")
+        preliminary_created = bool(
+            isinstance(stability, dict) and stability.get("preliminary_created")
+        )
+        if not preliminary_created:
+            if risk.state != "S0_NORMAL":
+                with latency_stage("event_persist"):
+                    await self._persist(risk)
+            return
+        if risk.state_index >= self._preliminary_confirm_min_state_index:
+            evidence = risk.model_dump(mode="json")
+            evidence.update(
+                {
+                    "verification_status": "CONFIRMED",
+                    "preliminary_source_event_id": payload.source_event_id,
+                    "preliminary_kind": (
+                        str(stability.get("candidate_kind") or "unknown")
+                        if isinstance(stability, dict)
+                        else "unknown"
+                    ),
+                    "confirmed_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            with latency_stage("event_persist"):
+                await self._persist(
+                    risk,
+                    source_event_id=payload.source_event_id,
+                    verification_status="CONFIRMED",
+                    evidence=evidence,
+                )
+            return
+        if self._risk_event_sink is not None:
+            with latency_stage("event_persist"):
+                await self._risk_event_sink.retract_preliminary(
+                    source_event_id=payload.source_event_id,
+                    reason=SYSTEM_RETRACT_REASON,
+                )
+
+    @staticmethod
+    def _reset_partial_stability(speech_event: dict[str, Any]) -> None:
+        stability = speech_event.get("partial_stability")
+        if isinstance(stability, dict) and stability.get("preliminary_created"):
+            speech_event["partial_stability"] = {
+                "revisions": 0,
+                "candidate_kind": None,
+                "preliminary_created": True,
+            }
+
+    async def _persist(
+        self,
+        risk: FraudRiskSnapshot,
+        *,
+        source_event_id: str | None = None,
+        verification_status: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
         if self._risk_event_sink is None:
             return
-        stable_key = hashlib.sha256(f"{risk.device_id}\0{risk.session_id}".encode()).hexdigest()
+        if source_event_id is None:
+            stable_key = hashlib.sha256(f"{risk.device_id}\0{risk.session_id}".encode()).hexdigest()
+            source_event_id = f"fraud-session:{stable_key}"
         await self._risk_event_sink.upsert(
             FraudRiskEventWrite(
-                source_event_id=f"fraud-session:{stable_key}",
+                source_event_id=source_event_id,
                 external_device_id=risk.device_id,
                 risk_level=risk.risk_level,
                 confidence=risk.confidence,
                 summary=f"{risk.state_label}：{risk.transition_reason}"[:500],
                 occurred_at=risk.occurred_at,
                 received_at=datetime.now(UTC),
-                evidence=risk.model_dump(mode="json"),
+                evidence=evidence or risk.model_dump(mode="json"),
                 model_name=RISK_MODEL_NAME,
                 model_version=RISK_MODEL_VERSION,
+                verification_status=verification_status,
             )
         )
