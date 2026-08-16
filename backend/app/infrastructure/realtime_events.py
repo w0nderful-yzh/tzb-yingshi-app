@@ -19,20 +19,24 @@ class RealtimeRiskEvent:
     device_id: str
     occurred_at: datetime
     status: str = "open"
+    verification_status: str | None = None
 
     def payload(self) -> dict[str, object]:
+        event: dict[str, object] = {
+            "event_id": self.event_id,
+            "type": self.event_type.lower(),
+            "level": self.level.lower(),
+            "title": self.title,
+            "summary": self.summary,
+            "device_id": self.device_id,
+            "occurred_at": self.occurred_at.isoformat(),
+            "status": self.status.lower(),
+        }
+        if self.verification_status is not None:
+            event["verification_status"] = self.verification_status.lower()
         return {
             "type": "risk_event.upserted",
-            "event": {
-                "event_id": self.event_id,
-                "type": self.event_type.lower(),
-                "level": self.level.lower(),
-                "title": self.title,
-                "summary": self.summary,
-                "device_id": self.device_id,
-                "occurred_at": self.occurred_at.isoformat(),
-                "status": self.status.lower(),
-            },
+            "event": event,
         }
 
 

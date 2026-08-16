@@ -205,9 +205,18 @@ GET /api/v1/events?level=&status=&limit=20&cursor=
   "fraud_state": "S4_ACTION_INDUCEMENT",
   "fraud_state_index": 4,
   "fraud_state_label": "敏感操作诱导",
-  "fraud_decision": "block"
+  "fraud_decision": "block",
+  "verification_status": "confirmed"
 }
 ```
+
+`verification_status` 只出现在防诈事件：`preliminary | confirmed | retracted | null`。
+- `preliminary`：PARTIAL 流式强动作连续命中后的待确认预警，`level` 固定为 `reminder`；
+- `confirmed`：FINAL 确认后按 S2-S5 更新等级；
+- `retracted`：FINAL 回落后系统撤回，状态为 `resolved`（开放列表与未读数不计入）；
+- `null`：未参与两级验证链路的普通防诈事件（旧客户端忽略未知字段即可）。
+
+`retracted` 事件在历史/系统列表中展示为“系统已撤回”，其 `event_actions` 含一条无操作人的系统 `RESOLVE` 审计记录（`reason=final_transcript_retracted_preliminary`，`source=FRAUD_ENGINE`）。
 
 `type` 枚举（初版）：`fall_suspected | fraud_suspected | stranger | inactivity | sos | device_offline | night_leave_bed | sedentary`。
 当前 App 只展示 `fraud_suspected`。防诈事件的 `fraud_scene` 为 `telecom | home_visit | unknown`；其他事件返回 `null`。

@@ -14,9 +14,18 @@ from app.modules.fraud.visual_event_store import VisualEventStore
 class CapturingRiskSink:
     def __init__(self) -> None:
         self.events: list[FraudRiskEventWrite] = []
+        self.retracted: list[tuple[str, str]] = []
 
     async def upsert(self, event: FraudRiskEventWrite) -> None:
         self.events.append(event)
+
+    async def retract_preliminary(
+        self,
+        *,
+        source_event_id: str,
+        reason: str,
+    ) -> None:
+        self.retracted.append((source_event_id, reason))
 
 
 class CapturingSessionStore:

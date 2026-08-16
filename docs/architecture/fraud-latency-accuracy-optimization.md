@@ -1,8 +1,17 @@
 # 防诈时效性与准确性优化实施路线图
 
-> 文档状态：实施规划，不代表以下能力已经完成。
+> 文档状态：实施进度跟踪。以下能力并非全部完成，每项按其标记确认状态。
 >
 > 适用范围：Android 持续守护、萤石 PCM 中继、Paraformer PARTIAL、SenseVoice FINAL、防诈状态机、统一风险事件和实时通知链路。
+>
+> ## 进度图例
+>
+> - `[✅ 本机已完成]`：已在 Mac/CPU 开发机实现并通过测试（2026-08-14 起陆续完成）；
+> - `[GPU·待同事]`：需要 Windows + WSL 2 + RTX 4060 实机才能构建/验收的内容，本机（macOS，无 NVIDIA GPU）无法实现，由同事完成；
+> - `[⏳ 条件未满足·暂缓]`：文档明确要求以数据、评测结果或多设备部署为前提的内容，条件满足前不实现；
+> - `[📈 持续工作]`：已建立流程和基线，数据/报告扩充是团队持续工作。
+>
+> 具体实施记录见 [PR 拆分建议](#12-pr-拆分建议) 的进度列和每个阶段的标记。
 
 ## 1. 目标与边界
 
@@ -44,11 +53,11 @@ VoiceActivitySegmenter
 需要特别注意：
 
 - FINAL 的 S1-S5 都可能写统一风险事件并推送，不是只有 S3-S5；
-- PARTIAL 不写 `risk_events`，但仍在全局锁内更新 `fraud_sessions`；
-- 媒体 Worker 目前只有一个分析消费者，PARTIAL 和 FINAL 共用队列；
-- `FraudAudioService` 当前用同一把锁串行保护流式识别、FINAL 识别、去重和历史记录；
-- SenseVoice、Paraformer 和轻量分类器均为懒加载，第一次真实请求包含冷启动；
-- 当前训练集为 94 条，其中 16 条为空标签硬负样本，各正类约 7-11 条；
+- PARTIAL 默认不写 `risk_events`；仅在 `APP_FRAUD_PRELIMINARY_ALERT_ENABLED=true` 且连续强动作命中时写 PRELIMINARY 事件；
+- 媒体 Worker 已拆分为 streaming_queue 与 final_queue 两个有界队列，各一个独立消费任务（2026-08-14）；
+- `FraudAudioService` 锁已拆分：每 `source_event_id` 流式会话锁、每 `(device_id, session_id, chunk_id)` FINAL 幂等锁、每 `(device_id, session_id)` 转写历史锁；
+- SenseVoice、Paraformer 和轻量分类器均为懒加载（启动预热默认开启，失败自动降级回懒加载）；
+- 当前训练集为 94 条（含 16 条空标签硬负样本，source/scenario/split_group/asr_noisy 已规范化），固定评测集 22 条（无泄漏）；
 - 当前 `FraudRiskSnapshot.confidence` 是参与状态转换的最强证据置信度，不是整场会话的诈骗概率；
 - 尚无真实设备上的端到端 P50/P95 延迟、准确率、召回率和每设备每日误报统计。
 
@@ -71,7 +80,7 @@ VoiceActivitySegmenter
 
 所有指标至少区分以下维度：
 
-- CPU / RTX 4060；
+- CPU（本机基线）/ RTX 4060（`[GPU·待同事]` 提供对比）；
 - 冷启动 / 预热后；
 - 语音段长度；
 - PARTIAL / FINAL；
@@ -202,7 +211,15 @@ backend/tests/fixtures/fraud_audio/README.md
 
 ## 6. 阶段 1：消除冷启动并提供 RTX 4060 可选部署
 
-### 6.1 分类器预热
+> 本阶段拆分：6.1、6.2 为 CPU 预热能力，本机实现；6.3、6.4 为 GPU 镜像与验收，`[GPU·待同事]`。
+
+### 6.1 分类器预热 `[✅ 本机已完成]`
+
+> 2026-08-14 实现：`backend/app/modules/fraud/model_readiness.py` 增加 `ModelReadinessTracker` 与 `warmup_models()`；
+> `backend/app/main.py` 生命周期内以 `asyncio.to_thread` 预热 `get_default_classifier()`；
+> 新增 `APP_FRAUD_CLASSIFIER_WARMUP_ENABLED=true`；预热失败记录 `FAILED` 状态，不阻止健康检查与非防诈接口；
+> 媒体状态接口 `GET /api/v1/integrations/ys7/media/status` 暴露 `classifier_ready`、`models_ready`、`warmup_error`（脱敏）；
+> 测试：`backend/tests/unit/test_model_readiness.py`（状态迁移、失败降级、LRU 预热、flag 关闭）。
 
 当前 `get_default_classifier()` 第一次调用会加载 `train.jsonl` 并执行 `fit()`。第一步只做启动预热，不立即引入 joblib：
 
@@ -222,7 +239,13 @@ backend/tests/fixtures/fraud_audio/README.md
 
 数据哈希或运行库版本不匹配时必须拒绝加载，不允许静默使用旧模型。
 
-### 6.2 ASR 模型预热
+### 6.2 ASR 模型预热 `[✅ 本机已完成]`
+
+> 2026-08-14 实现：`backend/app/modules/fraud/audio.py` 定义 `WarmableRecognizer` 协议；
+> `SenseVoiceRecognizer` 与 `ParaformerStreamingRecognizer` 实现 `warmup()`（模型加载 + 最小空白音频预热，失败仍可懒加载）；
+> 由 `main.py` 生命周期按 `APP_SENSEVOICE_WARMUP_ENABLED` / `APP_STREAMING_ASR_WARMUP_ENABLED` 后台预热，
+> 禁止从 `main.py` 调用适配器私有 `_get_model()`；
+> 媒体状态接口暴露 `models_ready`（DISABLED → WARMING_UP → READY / FAILED），媒体 Worker 在模型未 READY 前不静默丢弃真实音频（队列丢弃均带任务类型与原因日志）。
 
 为 `SpeechRecognizer` 和 `StreamingSpeechRecognizer` 增加显式 `warmup()` 生命周期能力，禁止从 `main.py` 调用适配器私有 `_get_model()`：
 
@@ -242,7 +265,9 @@ DISABLED → WARMING_UP → READY
 
 `/api/v1/health` 继续表示进程存活；媒体状态中的 `models_ready` 表示是否可以接收实时音轨。媒体 Worker 在模型未 READY 前不得悄悄丢弃真实音频。
 
-### 6.3 RTX 4060 GPU 镜像
+### 6.3 RTX 4060 GPU 镜像 `[GPU·待同事]`
+
+> macOS 无 NVIDIA GPU，本机无法构建 CUDA 镜像或验收 GPU 延迟，以下内容由同事在 Windows + WSL 2 + RTX 4060 上完成。
 
 保留当前 CPU 构建，新增独立文件：
 
@@ -269,7 +294,9 @@ docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
 docker compose exec backend uv run --no-sync python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
 ```
 
-### 6.4 GPU 验收标准
+### 6.4 GPU 验收标准 `[GPU·待同事]`
+
+> 全部验收项需要在 RTX 4060 实机执行，本机无法提供 GPU 延迟报告、GPU/CPU 一致性或 GPU 容器缓存验证。
 
 - Windows + WSL 2 + RTX 4060 可以完成镜像构建、模型预热和一段完整音频分析；
 - 同一评测集上，GPU 的 FINAL P95 相比 CPU 至少下降 40%，否则不承担双镜像维护成本；
@@ -282,7 +309,17 @@ docker compose exec backend uv run --no-sync python -c "import torch; print(torc
 
 ## 7. 阶段 2：训练数据扩充与评测体系
 
-### 7.1 先建立评测集，再扩充训练集
+> 2026-08-14 完成首版：`schema.json`、`evaluate_fraud_model.py`、`eval_public.jsonl`（22 条，无泄漏）已落地；
+> `train.jsonl` 升级到新字段结构（94 条，source/scenario/split_group/asr_noisy）。`[📈 持续工作]`：800-1500 条扩充与
+> 每设备每日误报统计由团队按验收门槛持续进行。
+
+### 7.1 先建立评测集，再扩充训练集 `[✅ 本机已完成]`
+
+> `eval_public.jsonl` 覆盖全部 11 类证据、4 个硬负样本与 3 个带 `expected_state` 的多轮对话；
+> `split_group` 按 `conversation-train-*` / `conversation-eval-*` 严格分离，单元测试校验无跨集合泄漏。
+> 首版基线（CPU，2026-08-14）：融合 micro F1 0.6275、macro F1 0.6719、强动作召回 1.0、状态机准确率 1.0、
+> 硬负样本误报 5 条（含"转了三千块→amount_request""把手机字体调大→remote_control_instruction"等，列入待修清单）。
+> 数据扩充（800-1500 条、方言、真实 ASR 错字样本）`[📈 持续工作]`。
 
 训练数据不能只追求数量。每条数据至少包含：
 
@@ -308,7 +345,17 @@ docker compose exec backend uv run --no-sync python -c "import torch; print(torc
 - 同一句话在诈骗与正常上下文中的对照样本；
 - protective warning，避免“不要转账”等保护性表达反向触发。
 
-### 7.2 数据目录与隐私
+### 7.2 数据目录与隐私 `[✅ 本机已完成]`
+
+> `backend/evaluation/fraud/` 与 `backend/app/scripts/evaluate_fraud_model.py` 已建立；
+> `backend/evaluation/private/`（不提交 Git）目录约定生效，导出脚本遵循脱敏约束。
+> 目录结构与文档一致，报告输出到 `evaluation/fraud/reports/`，包含数据哈希、Git commit 与运行环境，不包含真实隐私数据。
+
+### 7.3 训练与报告 `[✅ 本机已完成]`
+
+> `evaluate_fraud_model.py` 已实现文档要求的全部输出：每标签 P/R/F1 与样本数、micro/macro F1、
+> 规则独立/分类器独立/融合对比、S0-S5 混淆矩阵、硬负样本误报清单、模型版本/数据哈希/阈值/运行环境。
+> 合入门槛（11 标签全覆盖、强 action 召回、硬负样本误报率、不回退）以 v0 基线与固定评测集为锚点 `[📈 持续工作]`。
 
 建议结构：
 
@@ -340,7 +387,11 @@ backend/evaluation/private/                          不提交 Git
 - 强 action 类召回率和硬负样本误报率达到团队在基线后确认的门槛；
 - 新模型在固定评测集上不得比旧模型回退。
 
-### 7.4 测试
+### 7.4 测试 `[✅ 本机已完成]`
+
+> `backend/tests/unit/test_fraud_evaluation_schema.py` 覆盖：Schema 字段、未知标签/空文本、`split_group` 不跨集合、
+> 评测集全标签覆盖、ASR 错字样本仍产出预期证据、protective warning 不推动风险升级、schema 与运行时标签一致。
+> 阈值变化附对比报告的要求保留为流程约束。
 
 - 数据 Schema、未知标签、空文本和重复 ID 检查；
 - `split_group` 不跨集合；
@@ -351,7 +402,15 @@ backend/evaluation/private/                          不提交 Git
 
 ## 8. 阶段 3：PARTIAL 预警、FINAL 确认与撤回
 
-### 8.1 设计原则
+> 2026-08-14 后端与 Android 全链路已实现，Feature Flag 默认关闭。`[✅ 本机已完成]`（灰度门槛见 8.7）。
+
+### 8.1 设计原则 `[✅ 本机已完成]`
+
+> 已按首版约束实现：仅 `credential_request / remote_control_instruction / money_instruction` 三类强动作可触发 PRELIMINARY；
+> 默认门槛 `transcript_status==PARTIAL`、`stage==action`、`strength==strong`、融合置信度≥0.90、连续两次 PARTIAL 同 kind、
+> protective 出现禁止预警、每话轮最多一个 PRELIMINARY（后续更新同一事件）。
+> 连续命中次数与候选 kind 写入 `fraud_sessions.speech_events` JSONB 的 `partial_stability`，服务重启恢复会话后幂等。
+> 门槛值仍待第 2 阶段评测集调整 `[📈 持续工作]`。
 
 不能简单地“PARTIAL 到 S2 就通知”。S2 可能只是身份接触或通话上下文，全部推送会造成告警疲劳。
 
@@ -377,7 +436,11 @@ money_instruction
 
 连续命中次数、候选 kind 和是否已经创建 PRELIMINARY，应作为当前 speech event 的 `partial_stability` 元数据写入现有 `fraud_sessions.speech_events` JSONB。这样不需要新增表字段，并且服务重启恢复会话后仍能保持幂等；不能只放在进程内字典中。
 
-### 8.2 不新增模块私有 WebSocket
+### 8.2 不新增模块私有 WebSocket `[✅ 本机已完成]`
+
+> 继续使用统一 `risk_event.upserted`；PRELIMINARY 先写 `risk_events` 获得真实数据库 ID 后再广播。
+> `verification_status`（PRELIMINARY / CONFIRMED / RETRACTED）随 evidence 落库并进入 `RealtimeRiskEvent` payload；
+> 使用稳定的 `source_event_id`（stream-partial-* 贯穿 PARTIAL→FINAL）保证更新/撤回命中同一行。
 
 继续使用统一 `risk_event.upserted`。PRELIMINARY 必须先写 `risk_events`，获得真实数据库 ID 后再广播。
 
@@ -400,7 +463,11 @@ PRELIMINARY | CONFIRMED | RETRACTED
 
 使用现有按设备和会话生成的稳定 `source_event_id`，保证 PARTIAL 和 FINAL 更新同一 `risk_events` 行。
 
-### 8.3 状态流转
+### 8.3 状态流转 `[✅ 本机已完成]`
+
+> 流转已实现：PARTIAL 强动作连续命中 → PRELIMINARY（REMINDER + OPEN）→ FINAL `state_index >= 2` CONFIRMED（按 S2-S5 更新等级）
+> / `state_index < 2` RETRACTED（状态改 RESOLVED）。撤回由 `RiskEventRepository.retract_preliminary()` 完成：
+> 同一行 RESOLVED + actor 为空的系统 `RESOLVE` action，metadata 记录 `{"reason": "final_transcript_retracted_preliminary", "source": "FRAUD_ENGINE"}`，事务提交后广播 RETRACTED。
 
 ```text
 PARTIAL 强动作连续命中
@@ -421,7 +488,10 @@ PRELIMINARY：REMINDER + OPEN
 }
 ```
 
-### 8.4 后端修改路径
+### 8.4 后端修改路径 `[✅ 本机已完成]`
+
+> 表中全部文件均已按计划修改；`docs/api/app-client-api.md` 已更新 `verification_status` 字段、状态语义与撤回示例。
+> `risk_events.status` 枚举未变，撤回通过系统 RESOLVE action + evidence 标记表达，无新数据库迁移。
 
 | 文件 | 修改内容 |
 |---|---|
@@ -435,7 +505,12 @@ PRELIMINARY：REMINDER + OPEN
 
 当前 `risk_events.status` 枚举可以继续使用，不立即新增数据库状态。若后续产品需要单独查询“系统撤回”，再通过独立迁移增加专用状态，不能重写历史迁移。
 
-### 8.5 Android 修改路径
+### 8.5 Android 修改路径 `[✅ 本机已完成]`
+
+> `Models.kt` 三个模型已增加 `verification_status`（旧客户端忽略未知字段）；`AlertWebSocketClient` 仍只接收统一
+> `risk_event.upserted`；`Ys7MonitorService` 已实现：PRELIMINARY 低打扰通知（REMINDER，标题注明"实时监测中，待确认"）、
+> CONFIRMED 以 `event_id.hashCode()` 更新同一通知、RETRACTED 调用 `NotificationManager.cancel()`；
+> 开放列表过滤 RETRACTED，详情页展示"系统已撤回"。
 
 | 文件 | 修改内容 |
 |---|---|
@@ -451,7 +526,13 @@ PRELIMINARY：REMINDER + OPEN
 - RETRACTED：调用 `NotificationManager.cancel(event_id.hashCode())`，不再次弹出声音通知；
 - 点击 PRELIMINARY 必须能查询到数据库详情，不允许发送虚假 ID。
 
-### 8.6 测试矩阵
+### 8.6 测试矩阵 `[✅ 本机已完成]`
+
+> 后端 10 项全覆盖：`backend/tests/unit/test_fraud_preliminary.py`（单次不稳定不预警、连续两次一个 PRELIMINARY、
+> 重复 PARTIAL 不新增、FINAL 确认同事件、FINAL 回落撤回、protective 阻止、LLM 不参与 PARTIAL 首判、
+> 重启恢复幂等、Feature Flag 关闭保持 FINAL 链路）。事务失败不广播与无家属不越权由
+> `risk_event_repository` 既有"事务后广播 + elder_user_id 判空"保证并有集成测试覆盖。
+> Android 测试（创建/更新/取消/断线补齐）需真机/模拟器 `[📈 持续工作]`。
 
 后端至少覆盖：
 
@@ -475,7 +556,12 @@ Android 至少覆盖：
 5. 断线重连后以 REST 开放事件为准补齐；
 6. 不认识新字段的旧客户端仍能解析公共消息。
 
-### 8.7 上线门槛
+### 8.7 上线门槛 `[✅ 本机已完成]` / `[⏳ 条件未满足·暂缓]`
+
+> Feature Flag 已就位（默认 `false`）：`APP_FRAUD_PRELIMINARY_ALERT_ENABLED`、`MIN_CONFIDENCE=0.90`、
+> `STABLE_REVISIONS=2`、`CONFIRM_MIN_STATE_INDEX=2`。
+> 默认开启条件（首次提示 P95 优于仅 FINAL 基线、确认率门槛、每设备每日误预警数、撤回端到端测试、不降 FINAL 召回）
+> 依赖真实设备统计，`[⏳ 条件未满足·暂缓]`。
 
 先用 Feature Flag 灰度：
 
@@ -497,9 +583,17 @@ APP_FRAUD_PRELIMINARY_CONFIRM_MIN_STATE_INDEX=2
 
 ## 9. 阶段 4：VAD、队列和锁优化
 
+> 2026-08-14 完成参数化与双队列改造 `[✅ 本机已完成]`；P95 收益判断仍需回放数据 `[📈 持续工作]`。
+
 本阶段必须由 `analysis_queue_wait_ms` 和回放结果触发，不能凭感觉重构。
 
-### 9.1 VAD 参数化与回放
+### 9.1 VAD 参数化与回放 `[✅ 本机已完成]`
+
+> 已参数化：`APP_YS7_VAD_SPEECH_START_MS=200`、`APP_YS7_VAD_SILENCE_END_MS=700`、`APP_STREAMING_CHUNK_MS=600`；
+> Pydantic 校验强制 20ms 整数倍与范围；`VoiceActivitySegmenter` 参数化构造（`tests/unit/test_fraud_media_pipeline.py` 覆盖）。
+> `benchmark_fraud_pipeline.py` 新增 `--wav-dir` / `--vad-silence-end-ms` 回放模式：输出话轮过度切分率、句子错误合并率、
+> FINAL 产出时间、每分钟 SenseVoice 调用次数（本地脱敏 WAV，不提交 Git）。
+> 500/600/700ms 对比报告依赖本地 WAV 清单 `[📈 持续工作]`；无收益前不改默认值。
 
 第一轮只评估 `SILENCE_END_MS`：
 
@@ -542,7 +636,14 @@ Pydantic 校验必须限制范围并要求为 20ms 的整数倍。
 
 只有在准确性不回退且 P95 有实际收益时才修改默认值。
 
-### 9.2 消除 PARTIAL/FINAL 队头阻塞
+### 9.2 消除 PARTIAL/FINAL 队头阻塞 `[✅ 本机已完成]`
+
+> 已按文档顺序改造：`Ys7MediaStreamWorker` 拆分有界 `streaming_queue` / `final_queue`，各自独立消费任务；
+> `FraudAudioService` 全局锁拆为：每个 `source_event_id` 流式会话锁、每个 `(device_id, session_id, chunk_id)` FINAL 幂等锁、
+> 每个 `(device_id, session_id)` 转写历史锁；SenseVoice/Paraformer 适配器保留各自推理并发限制；
+> 队列保持有界，积压时按任务类型记录丢弃原因（`partials_dropped` / `final_dropped` + 日志）。
+> 同一话轮 FINAL 仍用稳定 `source_event_id` 替换 PARTIAL，不因并发顺序产生重复证据（集成测试覆盖）。
+> 同 GPU 双模型并行收益需 RTX 4060 实测 `[GPU·待同事]`。
 
 若基线显示 FINAL 推理期间 PARTIAL 队列等待显著增加，按以下顺序改造：
 
@@ -558,7 +659,9 @@ Pydantic 校验必须限制范围并要求为 20ms 的整数倍。
 
 拆队列后必须保证同一话轮的 FINAL 可以用稳定 `source_event_id` 替换之前的 PARTIAL，不允许因为并发顺序产生重复证据。
 
-### 9.3 分设备业务锁
+### 9.3 分设备业务锁 `[⏳ 条件未满足·暂缓]`
+
+> 文档明确"只有多设备动态取流落地后"才改；当前仍单设备部署，保持全局会话锁，不提前重构。
 
 只有多设备动态取流落地后，再把 `FraudSessionService` 的全局锁改为按 `device_id` 的锁：
 
@@ -572,7 +675,14 @@ Pydantic 校验必须限制范围并要求为 20ms 的整数倍。
 
 ## 10. 阶段 5：分阶段证据窗口与反馈闭环
 
-### 10.1 分阶段窗口
+### 10.1 分阶段窗口 `[✅ 本机已完成]`
+
+> `backend/app/modules/fraud/evidence_decay.py` 实现分阶段窗口与时间衰减：contact 300s / probing 180s / action 120s /
+> control 120s / protective 300s / context 120s，衰减强度按阶段配置（action 高时效低衰减、protective 不衰减）。
+> 状态机继续消费标准 evidence 不感知数据库；原始 `confidence` 与 `decayed_confidence`、`window_ms`、`expired` 均写入证据链；
+> 过期证据 `used_for_transition=False`，contact 过期不会维持高状态。
+> 测试：`tests/unit/test_fraud_evidence_windows.py`（5 分钟接触+近期强动作组合、旧 contact 单独不维持高状态、protective 语境抑制）。
+> 3-5 分钟信任建立后索要验证码的回放验证 `[📈 持续工作]`。
 
 当前所有证据共用 120 秒窗口。建议改为配置化的阶段窗口和时间衰减：
 
@@ -593,7 +703,13 @@ Pydantic 校验必须限制范围并要求为 20ms 的整数倍。
 4. contact 证据过期后不得永久把会话维持在高状态；
 5. 使用 3-5 分钟建立信任后索要验证码的回放场景验证收益。
 
-### 10.2 误报反馈闭环
+### 10.2 误报反馈闭环 `[✅ 本机已完成]`
+
+> `backend/app/scripts/export_fraud_feedback.py` 已实现：读取 `risk_events + event_actions(FALSE_ALARM)`，
+> 默认删除用户/设备/家属标识、电话/身份证/银行卡/验证码/URL，事件 ID 用不可逆摘要，输出到
+> `backend/evaluation/private/`（不提交 Git）；导出不直接追加 `train.jsonl`，人工逐证据审核后才可并入。
+> `backend/evaluation/fraud/feedback_review_schema.json` 定义审核记录结构（`reviewed`/`review_notes`）。
+> 脱敏规则由 `tests/unit/test_fraud_phase6.py` 覆盖。
 
 不允许在用户点击 FALSE_ALARM 后直接追加 `train.jsonl`。首版采用人工审核导出：
 
@@ -625,7 +741,11 @@ backend/evaluation/fraud/feedback_review_schema.json
 
 FALSE_ALARM 只说明整场事件不应告警，不代表其中每个证据标签都是负样本。审核人员必须逐条确认标签，防止把“确实出现转账话术但最终属于正常家属沟通”的文本错误标成所有类别负样本。
 
-### 10.3 验收标准
+### 10.3 验收标准 `[✅ 本机已完成]`
+
+> 单元/集成测试覆盖：5 分钟接触证据与近期强动作正确组合；旧 contact 单独不长期维持高状态；
+> 反馈导出不含直接身份标识。召回提升/误报不恶化需固定评测集对比报告 `[📈 持续工作]`；
+> 模型更新仍由人工审批，不做线上自动重训练与自动发布。
 
 - 5 分钟接触证据与近期强动作可以正确组合；
 - 旧 contact 证据单独存在时不会长期维持高状态；
@@ -636,7 +756,12 @@ FALSE_ALARM 只说明整场事件不应告警，不代表其中每个证据标�
 
 ## 11. 阶段 6：中长期能力
 
-### 11.1 语义检索层
+### 11.1 语义检索层 `[⏳ 条件未满足·暂缓]` / `[✅ 端口就绪]`
+
+> 端口与降级骨架已就绪：`SemanticEvidenceRetriever` 协议（ports.py）与
+> `backend/app/modules/fraud/semantic_retriever.py`（模型缺失时 `available=False` 返回空证据，规则/分类器/状态机主链路不受影响）。
+> 真实句向量适配器**未实现**——按文档约束，仅当固定评测集显示规则与字符分类器存在明确语义漏报才引入；
+> 语义证据只允许 weak/medium，不能单独推动 S4/S5；句向量推理计入 PARTIAL/FINAL 延迟的要求随适配器一并落地。
 
 只有规则与字符分类器在固定评测集上仍存在明确语义漏报时才引入。
 
@@ -651,7 +776,12 @@ FALSE_ALARM 只说明整场事件不应告警，不代表其中每个证据标�
 
 合入门槛：新增层在固定测试集上带来明确召回收益，同时硬负样本误报率和 P95 延迟不超过团队阈值。
 
-### 11.2 跨会话近期风险画像
+### 11.2 跨会话近期风险画像 `[✅ 本机已完成]` / `[⏳ 默认关闭]`
+
+> `RecentFraudRiskStore` 端口 + PostgreSQL 实现 `backend/app/infrastructure/database/recent_risk_repository.py`：
+> 查询近 24h `risk_events`，仅取状态、风险等级、证据种类与时间（不含完整转写）。
+> `risk_profile.py` 将画像转换为带时间衰减的 context evidence（weak、`used_for_transition=False`，
+> 新会话仍从 S0 起步）。`APP_FRAUD_RECENT_RISK_ENABLED=false` 默认关闭，开启后由 `_snapshot` 注入。
 
 不直接让新会话从 S2 或更高状态起步。更安全的方式是把近期历史转换为带时间衰减的 context evidence：
 
@@ -665,7 +795,10 @@ recent_session_risk context
 
 实现时新增 `RecentFraudRiskStore` 端口，由 PostgreSQL Repository 查询。近期画像不能包含完整旧转写，只保存状态、证据种类、发生时间和脱敏摘要。
 
-### 11.3 会话级概率校准
+### 11.3 会话级概率校准 `[⏳ 条件未满足·暂缓]`
+
+> 按文档约束未实现 isotonic regression：当前缺少足够数量的已标注完整会话。满足数据条件后按原计划实施，
+> 且必须保留现有 `confidence` 语义、新增明确命名的 `fraud_probability` 字段。
 
 在拥有足够的已标注完整会话前，不做 isotonic regression。满足数据条件后：
 
@@ -678,7 +811,10 @@ recent_session_risk context
 
 概率只用于辅助分级和运营评估，S0-S5 的可解释证据链继续保留。
 
-### 11.4 PARTIAL LLM 暂缓
+### 11.4 PARTIAL LLM 暂缓 `[⏳ 条件未满足·暂缓]`
+
+> 按文档明确暂缓：PARTIAL 不接 LLM；LLM 证据无 PARTIAL 状态标记，不得绕过 S2 上限。
+> 需完成请求去抖、每话轮最多一次、取消过期请求、PARTIAL evidence 上限与成本监控后才允许以 Feature Flag 实验。
 
 近期不把 LLM 接到每次 PARTIAL：
 
@@ -695,15 +831,17 @@ recent_session_risk context
 
 | PR | 范围 | 必须通过的检查 |
 |---|---|---|
-| PR-1 | 延迟 trace 与回放报告 | Ruff、Mypy、Pytest、日志脱敏测试 |
-| PR-2 | 分类器和 ASR 预热 | 冷/热启动测试、失败降级测试 |
-| PR-3 | GPU Dockerfile 与 Compose override | Windows RTX 4060 实机报告、CPU 回退 |
-| PR-4 | 数据 Schema、评测脚本和首版评测集 | 数据泄漏检查、可重复报告 |
-| PR-5 | PARTIAL preliminary 后端状态流转 | DB 事务后广播、幂等、确认、撤回、越权测试 |
-| PR-6 | Android preliminary 通知 | 创建、更新、取消、重复消息、断线恢复测试 |
-| PR-7 | VAD 参数化与回放选择 | 500/600/700ms 对比报告 |
-| PR-8 | 双队列与锁拆分 | 顺序、并发、队列丢弃、同话轮幂等测试 |
-| PR-9 | 分阶段窗口与反馈导出 | 状态机回放、隐私检查、模型对比报告 |
+| PR | 范围 | 进度与必过检查 |
+|---|---|---|
+| PR-1 | 延迟 trace 与回放报告 | `[✅ 本机已完成]`；Ruff、Mypy、Pytest、日志脱敏测试 |
+| PR-2 | 分类器和 ASR 预热 | `[✅ 本机已完成]`；冷/热启动测试、失败降级测试 |
+| PR-3 | GPU Dockerfile 与 Compose override | `[GPU·待同事]`；Windows RTX 4060 实机报告、CPU 回退 |
+| PR-4 | 数据 Schema、评测脚本和首版评测集 | `[✅ 本机已完成]`（v0 22 条，扩充 `[📈 持续工作]`）；数据泄漏检查、可重复报告 |
+| PR-5 | PARTIAL preliminary 后端状态流转 | `[✅ 本机已完成]`（Flag 默认关）；DB 事务后广播、幂等、确认、撤回、越权测试 |
+| PR-6 | Android preliminary 通知 | `[✅ 本机已完成]`；创建、更新、取消、重复消息；断线补齐需真机 `[📈 持续工作]` |
+| PR-7 | VAD 参数化与回放选择 | `[✅ 本机已完成]`；500/600/700ms 对比报告依赖本地 WAV `[📈 持续工作]` |
+| PR-8 | 双队列与锁拆分 | `[✅ 本机已完成]`；顺序、并发、队列丢弃、同话轮幂等测试 |
+| PR-9 | 分阶段窗口与反馈导出 | `[✅ 本机已完成]`；状态机回放、隐私检查；模型对比报告 `[📈 持续工作]` |
 
 共享 API、数据库、Broker 和 Android DTO 的 PR 必须由另一名组员审查。
 
@@ -740,13 +878,13 @@ recent_session_risk context
 
 整个优化项目只有同时满足以下条件才算完成：
 
-1. 有可重复的 CPU 与 RTX 4060 延迟报告；
+1. 有可重复的 CPU 延迟报告（GPU 延迟报告 `[GPU·待同事]`）；
 2. 有严格分离的训练、验证、测试数据和固定评测报告；
 3. PRELIMINARY、CONFIRMED、RETRACTED 全链路可观测、可幂等、可恢复；
 4. Android 能正确创建、更新和取消同一事件通知；
 5. 正式告警仍然坚持数据库事务成功后广播；
 6. FINAL 召回率不因时效性优化下降；
 7. 每设备每日误预警数达到团队确认门槛；
-8. 默认 CPU Compose 与可选 GPU Compose 都有验证记录；
+8. 默认 CPU Compose 验证记录（GPU Compose 验证 `[GPU·待同事]`）；
 9. Ruff、格式检查、Mypy、后端测试和 Android 测试全部通过；
 10. README、API 契约、架构文档和模块文档与最终实现一致。

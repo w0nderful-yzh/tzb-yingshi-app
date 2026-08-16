@@ -133,10 +133,13 @@ class FraudProcessStateMachine:
         evidence = dict(evidence)
         strength = str(evidence.get("strength", "weak"))
         minimum_confidence = MIN_TRANSITION_CONFIDENCE.get(strength, 1.0)
+        transition_confidence = float(
+            evidence.get("decayed_confidence", evidence.get("confidence", 1.0))
+        )
         evidence["used_for_transition"] = (
             bool(evidence.get("used_for_transition", True))
             and evidence.get("polarity") != "protective"
-            and float(evidence.get("confidence", 1.0)) >= minimum_confidence
+            and transition_confidence >= minimum_confidence
         )
         self.evidence_chain.append(evidence)
         if not evidence["used_for_transition"]:

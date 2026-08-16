@@ -1,0 +1,22 @@
+{"text": "我是银监会的工作人员需要核对你账户", "labels": ["identity_claim"], "source": "augmented", "scenario": "impersonating_authority", "split_group": "conversation-eval-single-01", "asr_noisy": true}
+{"text": "办理这个养生产品可以送体检和礼品", "labels": ["benefit_lure"], "source": "curated", "scenario": "health_product_marketing", "split_group": "conversation-eval-single-02", "asr_noisy": false}
+{"text": "你老伴被车撞了正在医院要马上动手术", "labels": ["emergency_pretext"], "source": "curated", "scenario": "fake_emergency", "split_group": "conversation-eval-single-03", "asr_noisy": false}
+{"text": "你那边银行卡里现在余额是多少告诉我", "labels": ["amount_request"], "source": "augmented", "scenario": "probing_amount", "split_group": "conversation-eval-single-04", "asr_noisy": true}
+{"text": "把身份证号码和银行卡正反面发过来", "labels": ["sensitive_info_request"], "source": "curated", "scenario": "information_fishing", "split_group": "conversation-eval-single-05", "asr_noisy": false}
+{"text": "短信里的验证码念给我听一下", "labels": ["credential_request"], "source": "curated", "scenario": "fake_customer_service", "split_group": "conversation-eval-single-06", "asr_noisy": false}
+{"text": "打开手机设置安装这个远程控制软件", "labels": ["remote_control_instruction"], "source": "curated", "scenario": "remote_assistance_scam", "split_group": "conversation-eval-single-07", "asr_noisy": false}
+{"text": "现在马上把五万块钱转到安全账户", "labels": ["money_instruction"], "source": "curated", "scenario": "transfer_scam", "split_group": "conversation-eval-single-08", "asr_noisy": false}
+{"text": "这件事千万不要告诉家里人也不能挂电话", "labels": ["secrecy_control"], "source": "curated", "scenario": "secrecy_pressure", "split_group": "conversation-eval-single-09", "asr_noisy": false}
+{"text": "不配合的话今天就冻结你所有银行账户", "labels": ["urgency_pressure"], "source": "curated", "scenario": "urgency_threat", "split_group": "conversation-eval-single-10", "asr_noisy": false}
+{"text": "这是银行防诈骗提醒请勿向陌生人转账汇款", "labels": ["protective_warning"], "source": "curated", "scenario": "anti_fraud_publicity", "split_group": "conversation-eval-single-11", "asr_noisy": false}
+{"text": "儿子今天给我转了三千块钱让我买药", "labels": [], "source": "curated", "scenario": "family_normal_transfer", "split_group": "conversation-eval-neg-01", "asr_noisy": false}
+{"text": "物业通知下周三点检修电路请大家配合", "labels": [], "source": "curated", "scenario": "normal_service_notice", "split_group": "conversation-eval-neg-02", "asr_noisy": false}
+{"text": "老太太我们帮您把手机字体调大一点", "labels": [], "source": "curated", "scenario": "elderly_assistance", "split_group": "conversation-eval-neg-03", "asr_noisy": false}
+{"text": "这条短信是反诈中心发的大家放心", "labels": [], "source": "curated", "scenario": "anti_fraud_publicity", "split_group": "conversation-eval-neg-04", "asr_noisy": false}
+{"text": "你好我是京东售后客服你的订单要退款", "labels": ["identity_claim", "benefit_lure"], "source": "curated", "scenario": "fake_customer_service", "split_group": "conversation-eval-scam-01", "asr_noisy": false}
+{"text": "请先告诉我你的银行卡号和身份证号码", "labels": ["sensitive_info_request"], "source": "curated", "scenario": "fake_customer_service", "split_group": "conversation-eval-scam-01", "asr_noisy": false}
+{"text": "马上把短信验证码报给我才能办理退款", "labels": ["credential_request"], "source": "curated", "scenario": "fake_customer_service", "split_group": "conversation-eval-scam-01", "asr_noisy": false, "expected_state": "S4_ACTION_INDUCEMENT"}
+{"text": "老头子我马上给你转生活费你收到了吗", "labels": [], "source": "curated", "scenario": "family_normal_transfer", "split_group": "conversation-eval-family-01", "asr_noisy": false}
+{"text": "收到啦我这就去银行查一下", "labels": [], "source": "curated", "scenario": "family_normal_transfer", "split_group": "conversation-eval-family-01", "asr_noisy": false, "expected_state": "S0_NORMAL"}
+{"text": "大家在电视上看到反诈宣传一定要听劝", "labels": ["protective_warning"], "source": "curated", "scenario": "anti_fraud_publicity", "split_group": "conversation-eval-safe-01", "asr_noisy": false}
+{"text": "刚才有人叫我转账我直接挂了电话", "labels": ["protective_warning"], "source": "curated", "scenario": "anti_fraud_publicity", "split_group": "conversation-eval-safe-01", "asr_noisy": false, "expected_state": "S0_NORMAL"}

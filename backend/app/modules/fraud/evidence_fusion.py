@@ -56,33 +56,32 @@ def fuse_speech_evidence(
     }
 
     protective_confidence = classifier_scores.get("protective_warning", 0.0)
+    protective: dict[str, Any] | None = None
     if "protective_warning" in rule_by_kind or protective_confidence >= 0.40:
-        protective = rule_by_kind.get("protective_warning") or _classifier_evidence(
+        protective_item = rule_by_kind.get("protective_warning") or _classifier_evidence(
             event, "protective_warning", protective_confidence
         )
-        rule_confidence = float(protective.get("confidence", 0.0))
+        rule_confidence = float(protective_item.get("confidence", 0.0))
         fused_confidence = min(
             0.99,
             max(rule_confidence, protective_confidence)
             + 0.04 * min(rule_confidence, protective_confidence),
         )
-        protective.update(
-            {
-                "confidence": round(fused_confidence, 4),
-                "rule_confidence": round(rule_confidence, 4),
-                "classifier_confidence": round(protective_confidence, 4),
-                "detectors": [
-                    detector
-                    for detector, present in (
-                        ("rule", "protective_warning" in rule_by_kind),
-                        ("text_classifier", protective_confidence > 0),
-                    )
-                    if present
-                ],
-                "fusion_method": "protective_override",
-            }
-        )
-        return [protective]
+        protective = {
+            **protective_item,
+            "confidence": round(fused_confidence, 4),
+            "rule_confidence": round(rule_confidence, 4),
+            "classifier_confidence": round(protective_confidence, 4),
+            "detectors": [
+                detector
+                for detector, present in (
+                    ("rule", "protective_warning" in rule_by_kind),
+                    ("text_classifier", protective_confidence > 0),
+                )
+                if present
+            ],
+            "fusion_method": "protective_override",
+        }
 
     fused: list[dict[str, Any]] = []
     for kind in EVIDENCE_LABELS:
@@ -120,4 +119,6 @@ def fuse_speech_evidence(
         )
         fused.append(rule_item)
 
+    if protective is not None:
+        fused.insert(0, protective)
     return fused

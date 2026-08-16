@@ -1,0 +1,314 @@
+{
+  "generated_at": "2026-08-14T07:06:07.678301+00:00",
+  "git_commit": "226d0df",
+  "environment": {
+    "device_type": "cpu",
+    "language": "python"
+  },
+  "model": {
+    "name": "char_tfidf_calibrated_logreg_evidence_v2",
+    "classifier_threshold": 0.2
+  },
+  "data": {
+    "train_records": 94,
+    "eval_records": 22,
+    "eval_files": [
+      "eval_public.jsonl"
+    ],
+    "train_data_sha256": "25c22b26eb31838382679008609c3e5234fd967a957277912b7aa4f10b11485c"
+  },
+  "metrics": {
+    "rule": {
+      "per_label": {
+        "identity_claim": {
+          "support": 2,
+          "precision": 0.1429,
+          "recall": 0.5,
+          "f1": 0.2222
+        },
+        "benefit_lure": {
+          "support": 2,
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1": 0.5
+        },
+        "emergency_pretext": {
+          "support": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "amount_request": {
+          "support": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "sensitive_info_request": {
+          "support": 2,
+          "precision": 1.0,
+          "recall": 0.5,
+          "f1": 0.6667
+        },
+        "credential_request": {
+          "support": 2,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "remote_control_instruction": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "money_instruction": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "secrecy_control": {
+          "support": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "urgency_pressure": {
+          "support": 1,
+          "precision": 0.2,
+          "recall": 1.0,
+          "f1": 0.3333
+        },
+        "protective_warning": {
+          "support": 3,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        }
+      },
+      "overall": {
+        "micro_precision": 0.3478,
+        "micro_recall": 0.4706,
+        "micro_f1": 0.4,
+        "macro_f1": 0.399
+      }
+    },
+    "classifier": {
+      "per_label": {
+        "identity_claim": {
+          "support": 2,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "benefit_lure": {
+          "support": 2,
+          "precision": 0.4,
+          "recall": 1.0,
+          "f1": 0.5714
+        },
+        "emergency_pretext": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "amount_request": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "sensitive_info_request": {
+          "support": 2,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "credential_request": {
+          "support": 2,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "remote_control_instruction": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "money_instruction": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "secrecy_control": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "urgency_pressure": {
+          "support": 1,
+          "precision": 0.1429,
+          "recall": 1.0,
+          "f1": 0.25
+        },
+        "protective_warning": {
+          "support": 3,
+          "precision": 0.4286,
+          "recall": 1.0,
+          "f1": 0.6
+        }
+      },
+      "overall": {
+        "micro_precision": 0.4474,
+        "micro_recall": 1.0,
+        "micro_f1": 0.6182,
+        "macro_f1": 0.6747
+      }
+    },
+    "fusion": {
+      "per_label": {
+        "identity_claim": {
+          "support": 2,
+          "precision": 0.25,
+          "recall": 1.0,
+          "f1": 0.4
+        },
+        "benefit_lure": {
+          "support": 2,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "emergency_pretext": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "amount_request": {
+          "support": 1,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "sensitive_info_request": {
+          "support": 2,
+          "precision": 0.6667,
+          "recall": 1.0,
+          "f1": 0.8
+        },
+        "credential_request": {
+          "support": 2,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "remote_control_instruction": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "money_instruction": {
+          "support": 1,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6667
+        },
+        "secrecy_control": {
+          "support": 1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "urgency_pressure": {
+          "support": 1,
+          "precision": 0.2,
+          "recall": 1.0,
+          "f1": 0.3333
+        },
+        "protective_warning": {
+          "support": 3,
+          "precision": 0.75,
+          "recall": 1.0,
+          "f1": 0.8571
+        }
+      },
+      "overall": {
+        "micro_precision": 0.4706,
+        "micro_recall": 0.9412,
+        "micro_f1": 0.6275,
+        "macro_f1": 0.6719
+      }
+    }
+  },
+  "state_machine": {
+    "confusion_matrix": {
+      "S4_ACTION_INDUCEMENT": [
+        {
+          "expected": "S4_ACTION_INDUCEMENT",
+          "actual": "S4_ACTION_INDUCEMENT"
+        }
+      ],
+      "S0_NORMAL": [
+        {
+          "expected": "S0_NORMAL",
+          "actual": "S0_NORMAL"
+        },
+        {
+          "expected": "S0_NORMAL",
+          "actual": "S0_NORMAL"
+        }
+      ]
+    },
+    "accuracy": 1.0
+  },
+  "hard_negative_false_positives": [
+    {
+      "split_group": "conversation-eval-neg-01",
+      "scenario": "family_normal_transfer",
+      "asr_noisy": false,
+      "fusion_false_positives": [
+        "amount_request"
+      ]
+    },
+    {
+      "split_group": "conversation-eval-neg-03",
+      "scenario": "elderly_assistance",
+      "asr_noisy": false,
+      "fusion_false_positives": [
+        "remote_control_instruction"
+      ]
+    },
+    {
+      "split_group": "conversation-eval-neg-04",
+      "scenario": "anti_fraud_publicity",
+      "asr_noisy": false,
+      "fusion_false_positives": [
+        "protective_warning"
+      ]
+    },
+    {
+      "split_group": "conversation-eval-family-01",
+      "scenario": "family_normal_transfer",
+      "asr_noisy": false,
+      "fusion_false_positives": [
+        "urgency_pressure"
+      ]
+    },
+    {
+      "split_group": "conversation-eval-family-01",
+      "scenario": "family_normal_transfer",
+      "asr_noisy": false,
+      "fusion_false_positives": [
+        "identity_claim"
+      ]
+    }
+  ],
+  "missed_strong_actions": []
+}

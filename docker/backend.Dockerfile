@@ -3,8 +3,7 @@ FROM ghcr.io/astral-sh/uv:0.11.32-python3.12-trixie-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_NO_CACHE=1
+    UV_LINK_MODE=copy
 
 WORKDIR /app/backend
 
@@ -12,7 +11,9 @@ COPY README.md /app/README.md
 COPY backend/pyproject.toml backend/uv.lock ./
 
 ARG INSTALL_SENSEVOICE=false
-RUN if [ "$INSTALL_SENSEVOICE" = "true" ]; then \
+# 依赖包缓存在 BuildKit 缓存挂载里，重复构建只下载一次
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$INSTALL_SENSEVOICE" = "true" ]; then \
         uv sync --frozen --no-dev --extra sensevoice; \
     else \
         uv sync --frozen --no-dev; \

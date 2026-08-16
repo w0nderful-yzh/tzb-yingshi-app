@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     ys7_media_queue_maxsize: int = Field(default=32, ge=4, le=200)
     ys7_pcm_relay_queue_maxsize: int = Field(default=8, ge=2, le=100)
     ys7_vad_mode: int = Field(default=2, ge=0, le=3)
+    ys7_vad_speech_start_ms: int = Field(default=200, ge=20, le=1_000)
+    ys7_vad_silence_end_ms: int = Field(default=700, ge=100, le=5_000)
+    streaming_chunk_ms: int = Field(default=600, ge=200, le=3_000)
     ys7_elder_alone: bool = False
     sensevoice_enabled: bool = False
     sensevoice_model: str = "iic/SenseVoiceSmall"
@@ -74,6 +77,15 @@ class Settings(BaseSettings):
     fraud_llm_vision_enabled: bool = False
     fraud_llm_max_images: int = Field(default=4, ge=1, le=8)
     fraud_latency_trace_enabled: bool = False
+    fraud_classifier_warmup_enabled: bool = True
+    sensevoice_warmup_enabled: bool = True
+    streaming_asr_warmup_enabled: bool = True
+    fraud_preliminary_alert_enabled: bool = False
+    fraud_preliminary_min_confidence: float = Field(default=0.90, ge=0.0, le=1.0)
+    fraud_preliminary_stable_revisions: int = Field(default=2, ge=1, le=10)
+    fraud_preliminary_confirm_min_state_index: int = Field(default=2, ge=0, le=5)
+    fraud_semantic_retriever_enabled: bool = False
+    fraud_recent_risk_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
@@ -81,6 +93,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @field_validator("ys7_vad_speech_start_ms", "ys7_vad_silence_end_ms", "streaming_chunk_ms")
+    @classmethod
+    def require_frame_aligned_vad_timing(cls, value: int) -> int:
+        if value % 20 != 0:
+            raise ValueError("VAD/streaming timing must be a multiple of the 20 ms frame")
+        return value
 
 
 @lru_cache

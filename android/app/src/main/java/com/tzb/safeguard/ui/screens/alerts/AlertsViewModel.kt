@@ -49,7 +49,7 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
                 .onSuccess { data ->
                     val fraudEvents = data.events.filter { it.type == "fraud_suspected" }
                     val visible = when (filter) {
-                        AlertFilter.ALL -> fraudEvents
+                        AlertFilter.ALL -> fraudEvents.filter { it.verification_status != "retracted" }
                         AlertFilter.PREDICTION -> fraudEvents.filter { it.status == "open" }
                         AlertFilter.INTERVENTION -> fraudEvents.filter { it.status == "acknowledged" }
                         AlertFilter.SYSTEM -> fraudEvents.filter {

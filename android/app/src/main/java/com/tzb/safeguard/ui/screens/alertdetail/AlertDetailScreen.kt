@@ -59,6 +59,7 @@ import com.tzb.safeguard.ui.components.StateBox
 import com.tzb.safeguard.ui.components.eventStatusLabel
 import com.tzb.safeguard.ui.components.formatTime
 import com.tzb.safeguard.ui.components.levelColor
+import com.tzb.safeguard.ui.components.verificationStatusLabel
 import com.tzb.safeguard.ui.navigation.Routes
 import com.tzb.safeguard.ui.navigation.appViewModel
 import com.tzb.safeguard.ui.theme.LineColor
@@ -245,7 +246,10 @@ private fun EventHero(detail: EventDetail) {
             Column {
                 Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(
-                    "${formatTime(detail.occurred_at)} · ${eventStatusLabel(detail.status)}",
+                    "${formatTime(detail.occurred_at)} · ${eventStatusLabel(detail.status)}"
+                        + detail.verification_status?.let {
+                            " · ${verificationStatusLabel(detail.verification_status)}"
+                        }.orEmpty(),
                     color = TextSecondary,
                     fontSize = 13.sp,
                 )
