@@ -1,63 +1,202 @@
 package com.tzb.safeguard.ui.screens.care
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.PersonalInjury
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import com.tzb.safeguard.ServiceLocator
+import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.ui.components.AppCard
-import com.tzb.safeguard.ui.theme.*
+import com.tzb.safeguard.ui.components.UiState
+import com.tzb.safeguard.ui.navigation.appViewModel
+import com.tzb.safeguard.ui.theme.BgPage
+import com.tzb.safeguard.ui.theme.Primary
+import com.tzb.safeguard.ui.theme.TextSecondary
 
-/** 其他团队的模块接入占位，不生成任何本地模拟结论。 */
 @Composable
-fun CareScreen(navController: NavHostController) {
+fun CareScreen(
+    navController: NavHostController,
+    viewModel: CareViewModel = appViewModel {
+        CareViewModel(ServiceLocator.repository, ServiceLocator.psychologyRepository)
+    },
+) {
+    val psychologyState by viewModel.psychologyState.collectAsState()
     Scaffold(modifier = Modifier.statusBarsPadding(), containerColor = BgPage) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                 }
-                Text("后续守护能力", style = MaterialTheme.typography.headlineLarge)
+                Text("心理健康评估", style = MaterialTheme.typography.headlineLarge)
             }
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                PlaceholderModule(
-                    Icons.Filled.PersonalInjury,
-                    "跌倒风险预测",
-                    "待跌倒模块通过统一风险事件接口接入。未来应关注失衡、步态与环境风险趋势，而不只报告已经跌倒。"
-                )
-                PlaceholderModule(
-                    Icons.Filled.FavoriteBorder,
-                    "心理健康趋势",
-                    "待心理关怀模块定义非诊断性趋势与人工复核流程。当前版本不生成情绪评分、诊断或陪聊内容。"
-                )
-                Text(
-                    "两个模块接入后复用用户、设备、事件状态和家属处置能力，不进入防诈状态机。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
+                PsychologyAssessmentCard(psychologyState, viewModel::loadPsychologyOverview)
             }
         }
     }
 }
 
 @Composable
-private fun PlaceholderModule(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String) {
+private fun PsychologyAssessmentCard(
+    state: UiState<PsychologyOverview>,
+    onRetry: () -> Unit,
+) {
     AppCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(34.dp))
+            Icon(
+                Icons.Filled.FavoriteBorder,
+                contentDescription = null,
+                tint = Primary,
+                modifier = Modifier.size(34.dp),
+            )
             Spacer(Modifier.width(12.dp))
-            Column {
-                Text(title, style = MaterialTheme.typography.titleLarge)
-                Text("待模块接入", style = MaterialTheme.typography.bodySmall, color = WarnAmber)
+            Column(Modifier.weight(1f)) {
+                Text("心理健康评估", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "基于近期摄像头面部行为特征",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text(detail, style = MaterialTheme.typography.bodyMedium)
+        when (state) {
+            UiState.Loading -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("正在读取最近一次评估状态")
+                }
+            }
+            is UiState.Error -> {
+                Text("心理评估服务暂不可用", style = MaterialTheme.typography.bodyMedium)
+                Text(state.message, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                TextButton(onClick = onRetry) { Text("重新加载") }
+            }
+            is UiState.Success -> PsychologyAssessmentContent(state.data)
+        }
     }
+}
+
+@Composable
+private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
+    val stateLabel = when (overview.assessment_state) {
+        "collecting" -> "正在采集资料"
+        "observation_available" -> "评估已完成"
+        "insufficient_data" -> "数据不足"
+        else -> "服务暂不可用"
+    }
+    Text(stateLabel, style = MaterialTheme.typography.titleMedium)
+    if (overview.assessment_state == "observation_available") {
+        Text("已完成近期心理行为特征综合分析", style = MaterialTheme.typography.bodyMedium)
+        overview.estimated_phq8_score?.let { score ->
+            Spacer(Modifier.height(12.dp))
+            Text("参考评估分数", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "${"%.1f".format(score)} / 24",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "最近一次心理评估模型输出",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        if (overview.source_modality == "camera_behavior") {
+            Text("分析维度", style = MaterialTheme.typography.titleSmall)
+            AnalysisScopeItems()
+            Spacer(Modifier.height(8.dp))
+        }
+        DataRow("数据质量", dataQualityLabel(overview.data_quality))
+        overview.updated_at?.takeIf { it.isNotBlank() }?.let {
+            DataRow("最近评估时间", formatAssessmentTime(it))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("健康建议", style = MaterialTheme.typography.titleSmall)
+        Text(
+            overview.guidance.ifBlank { "结果仅供日常关怀参考，建议结合日常沟通和专业评估" },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            overview.disclaimer.ifBlank { "该结果仅供日常关怀参考，不构成心理或医疗诊断" },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+        )
+    } else {
+        Text(overview.evidence_summary, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun AnalysisScopeItems() {
+    val items = listOf("面部行为特征", "视线变化", "头部姿态", "面部动作单元")
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.forEach { item ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(4.dp).background(Primary, RoundedCornerShape(2.dp)),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(item, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DataRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Spacer(Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+private fun dataQualityLabel(quality: String): String = when (quality) {
+    "usable" -> "良好"
+    "limited" -> "有限"
+    "insufficient" -> "不足"
+    else -> "未知"
+}
+
+/** 解析 ISO-8601（含毫秒与 Z），转本地时区显示；解析失败时原样返回。 */
+private fun formatAssessmentTime(iso: String): String = try {
+    val local = java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault())
+    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(local)
+} catch (e: Exception) {
+    iso
 }
