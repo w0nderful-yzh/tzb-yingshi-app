@@ -3,10 +3,14 @@ package com.tzb.safeguard.ui.screens.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tzb.safeguard.Session
+import com.tzb.safeguard.data.fall.model.FallRiskOverview
+import com.tzb.safeguard.data.fall.repository.FallRiskRepository
 import com.tzb.safeguard.data.model.Device
 import com.tzb.safeguard.data.model.ElderInfo
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RiskEvent
+import com.tzb.safeguard.data.psychology.model.PsychologyOverview
+import com.tzb.safeguard.data.psychology.repository.PsychologyRepository
 import com.tzb.safeguard.data.repository.SafeRepository
 import com.tzb.safeguard.ui.components.UiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,9 +26,15 @@ data class HomeData(
     val streamError: String? = null,
     val pendingWarnings: List<RiskEvent>,
     val recentWarnings: List<RiskEvent>,
+    val fallRisk: FallRiskOverview? = null,
+    val psychology: UiState<PsychologyOverview> = UiState.Loading,
 )
 
-class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
+class HomeViewModel(
+    private val repo: SafeRepository,
+    private val fallRiskRepo: FallRiskRepository,
+    private val psychologyRepo: PsychologyRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow<UiState<HomeData>>(UiState.Loading)
     val state = _state.asStateFlow()
 
@@ -58,6 +68,8 @@ class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
                     recentWarnings = fraudWarnings.take(3),
                 )
             )
+            launch { loadFallRisk(elder.elder_id) }
+            launch { loadPsychology(elder.elder_id) }
             selected?.let { loadLiveSession(it.device_id) }
         }
     }
@@ -113,6 +125,37 @@ class HomeViewModel(private val repo: SafeRepository) : ViewModel() {
                             liveSession = null,
                             streamLoading = false,
                             streamError = error.message ?: "获取直播会话失败",
+                        )
+                    )
+                }
+            }
+    }
+
+    private suspend fun loadFallRisk(elderId: String) {
+        fallRiskRepo.getOverview(elderId).onSuccess { overview ->
+            val latest = _state.value as? UiState.Success ?: return@onSuccess
+            if (latest.data.elder?.elder_id == elderId) {
+                _state.value = UiState.Success(latest.data.copy(fallRisk = overview))
+            }
+        }
+    }
+
+    private suspend fun loadPsychology(elderId: String) {
+        psychologyRepo.getOverview(elderId)
+            .onSuccess { overview ->
+                val latest = _state.value as? UiState.Success ?: return@onSuccess
+                if (latest.data.elder?.elder_id == elderId) {
+                    _state.value = UiState.Success(
+                        latest.data.copy(psychology = UiState.Success(overview))
+                    )
+                }
+            }
+            .onFailure { error ->
+                val latest = _state.value as? UiState.Success ?: return@onFailure
+                if (latest.data.elder?.elder_id == elderId) {
+                    _state.value = UiState.Success(
+                        latest.data.copy(
+                            psychology = UiState.Error(error.message ?: "心理健康评估服务暂不可用")
                         )
                     )
                 }

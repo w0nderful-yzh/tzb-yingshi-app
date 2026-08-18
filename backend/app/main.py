@@ -14,7 +14,9 @@ from app.infrastructure.database.risk_event_repository import RiskEventRepositor
 from app.infrastructure.database.session import Database
 from app.infrastructure.event_deduplicator import EventDeduplicator
 from app.infrastructure.event_queue import Ys7EventQueue
+from app.infrastructure.external.fall_risk import HttpFallRiskSource
 from app.infrastructure.external.llm import OpenAiCompatibleFraudLlmJudge
+from app.infrastructure.external.psychology import HttpPsychologySource
 from app.infrastructure.external.sensevoice import (
     ParaformerStreamingRecognizer,
     SenseVoiceRecognizer,
@@ -28,6 +30,8 @@ from app.infrastructure.external.ys7.pcm_relay import AppPcmRelaySource
 from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.infrastructure.raw_signal_store import RawSignalStore
 from app.infrastructure.realtime_events import RealtimeEventBroker
+from app.modules.fall.ports import FallRiskSource
+from app.modules.fall.service import FallRiskService
 from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
 from app.modules.fraud.audio_service import FraudAudioService
 from app.modules.fraud.latency import configure_tracing
@@ -38,6 +42,8 @@ from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.text_classifier import get_default_classifier
 from app.modules.fraud.visual_event_store import VisualEventStore
+from app.modules.psychology.ports import PsychologySource
+from app.modules.psychology.service import PsychologyService
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
 from app.workers.ys7_alarm_poll_worker import Ys7AlarmPollWorker
 from app.workers.ys7_event_worker import Ys7EventWorker
@@ -50,6 +56,8 @@ def create_app(
     speech_recognizer: SpeechRecognizer | None = None,
     streaming_speech_recognizer: StreamingSpeechRecognizer | None = None,
     fraud_llm_judge: FraudLlmJudge | None = None,
+    fall_risk_source: FallRiskSource | None = None,
+    psychology_source: PsychologySource | None = None,
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(runtime_settings.log_level)
@@ -67,6 +75,49 @@ def create_app(
     visual_event_store = VisualEventStore()
     fraud_session_tracker = FraudSessionTracker()
     realtime_event_broker = RealtimeEventBroker()
+    fall_source_client: HttpFallRiskSource | None = None
+    runtime_fall_source = fall_risk_source
+    if (
+        runtime_settings.fall_risk_enabled
+        and runtime_fall_source is None
+        and (
+            runtime_settings.fall_risk_base_url
+            or runtime_settings.fall_risk_radar_room_urls
+        )
+    ):
+        fall_source_client = HttpFallRiskSource(
+            camera_base_url=runtime_settings.fall_risk_base_url,
+            radar_room_base_urls=runtime_settings.fall_risk_radar_room_urls,
+            timeout_seconds=runtime_settings.fall_risk_timeout_seconds,
+            api_key=(
+                runtime_settings.fall_risk_api_key.get_secret_value()
+                if runtime_settings.fall_risk_api_key is not None
+                else None
+            ),
+            camera_led_path=runtime_settings.fall_risk_camera_led_path,
+            radar_only_path=runtime_settings.fall_risk_radar_only_path,
+        )
+        runtime_fall_source = fall_source_client
+    fall_risk_service = FallRiskService(runtime_fall_source)
+    psychology_source_client: HttpPsychologySource | None = None
+    runtime_psychology_source = psychology_source
+    if (
+        runtime_settings.psychology_enabled
+        and runtime_psychology_source is None
+        and runtime_settings.psychology_base_url
+    ):
+        psychology_source_client = HttpPsychologySource(
+            base_url=runtime_settings.psychology_base_url,
+            timeout_seconds=runtime_settings.psychology_timeout_seconds,
+            api_key=(
+                runtime_settings.psychology_api_key.get_secret_value()
+                if runtime_settings.psychology_api_key is not None
+                else None
+            ),
+            latest_path=runtime_settings.psychology_latest_path,
+        )
+        runtime_psychology_source = psychology_source_client
+    psychology_service = PsychologyService(runtime_psychology_source)
     risk_event_repository = (
         RiskEventRepository(database, realtime_broker=realtime_event_broker)
         if database is not None
@@ -262,6 +313,10 @@ def create_app(
                 await llm_worker.stop()
             if llm_client is not None:
                 await llm_client.close()
+            if fall_source_client is not None:
+                await fall_source_client.close()
+            if psychology_source_client is not None:
+                await psychology_source_client.close()
             if database is not None:
                 await database.dispose()
 
@@ -290,6 +345,8 @@ def create_app(
     application.state.fraud_llm_configured = llm_configured
     application.state.fraud_llm_worker = llm_worker
     application.state.model_readiness = model_readiness
+    application.state.fall_risk_service = fall_risk_service
+    application.state.psychology_service = psychology_service
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix="/api/v1")

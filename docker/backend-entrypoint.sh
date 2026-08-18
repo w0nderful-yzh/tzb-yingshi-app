@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# Keep database preparation in the existing backend startup path.
 uv run --no-sync alembic upgrade head
 
 if [ "${APP_SEED_DEMO:-true}" = "true" ]; then

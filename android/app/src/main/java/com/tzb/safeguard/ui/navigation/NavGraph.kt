@@ -15,6 +15,7 @@ import androidx.navigation.navArgument
 import com.tzb.safeguard.ui.screens.alertdetail.AlertDetailScreen
 import com.tzb.safeguard.ui.screens.alerts.AlertsScreen
 import com.tzb.safeguard.ui.screens.care.CareScreen
+import com.tzb.safeguard.ui.screens.fall.FallScreen
 import com.tzb.safeguard.ui.screens.home.HomeScreen
 import com.tzb.safeguard.ui.screens.monitor.MonitorScreen
 import com.tzb.safeguard.ui.screens.profile.ProfileScreen
@@ -25,6 +26,7 @@ object Routes {
     const val MONITOR = "monitor"
     const val ALERTS = "alerts"
     const val CARE = "care"
+    const val FALL = "fall"
     const val PROFILE = "profile"
     const val ALERT_DETAIL = "alert_detail/{eventId}"
 
@@ -55,6 +57,7 @@ fun AppNavHost(
         composable(Routes.MONITOR) { MonitorScreen(navController) }
         composable(Routes.ALERTS) { AlertsScreen(navController) }
         composable(Routes.CARE) { CareScreen(navController) }
+        composable(Routes.FALL) { FallScreen(navController) }
         composable(Routes.PROFILE) { ProfileScreen(navController) }
 
         // 预警详情

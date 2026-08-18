@@ -50,7 +50,9 @@ fun <T> StateBox(
             Spacer(Modifier.height(16.dp))
             BigActionButton(text = "重新加载", icon = Icons.Filled.Refresh, onClick = onRetry)
         }
-        is UiState.Success -> content(state.data)
+        is UiState.Success -> Box(modifier.fillMaxSize()) {
+            content(state.data)
+        }
     }
 }
 

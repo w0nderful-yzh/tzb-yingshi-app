@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.env
+
+# 迁移后 checkpoints/ 仅含推理必需模型（主模型 + shadow 模型），全部入库；
+# 后续加入训练/实验产物时请在此追加排除规则。
+runs/
+artifacts/
+
+# 可复现下载的外部数据；仅提交来源与兼容性清单。
+data/external/**
+!data/external/**/
+!data/external/**/source_manifest.json

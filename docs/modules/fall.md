@@ -1,29 +1,61 @@
-# 跌倒模块
+# 跌倒风险 App Adapter
 
-## 当前状态
+## 正式决策路径
 
-目录已预留，尚无实现。
+- `camera_led_radar_evidence`：客厅使用 Camera 主风险判断，关联后的 TI Tracking 雷达运动证据只做增强；风险分数取 `camera_score`。
+- `camera_only`：客厅 Camera 可用但雷达证据暂不可用或未关联时，继续使用 Camera 正式判断。
+- `radar_only`：卫生间及无摄像头卧室使用 Radar TCN 短时风险；风险分数取真实字段 `pre_fall_score`，但 UI 不得称为“跌倒概率”。
+- `unavailable`：该房间正式路径所需的主传感器不可用。
 
-## 规划职责
+Radar-only 是无摄像头空间的独立能力，不是客厅 C 路的 fallback。Fixed 0.6/0.4 Fusion 只属于 Web/实验 baseline，不进入 App 决策。当前算法工程的 TCN 响应仍明确标记为 `shadow_only=true`、`alert_suppressed=true`，Adapter 会读取并闭锁为 `unavailable`，直到上游使用同一契约发布正式结果。
 
-- 接收视频帧、人体检测、姿态或运动特征；
-- 维护人体时序状态；
-- 区分站立、坐下、正常躺卧、遮挡和疑似跌倒；
-- 结合倒地持续时间、运动变化和多人场景降低误报；
-- 生成统一风险事件及必要的关键帧证据；
-- 提供Mock接口、功能开关和模块测试。
+## 代码边界
 
-## 输入边界
+```text
+backend/app/modules/fall/
+├── schemas.py          # 稳定 App-facing contract
+├── source_schemas.py   # 算法服务输入边界，忽略未知调试字段
+├── ports.py            # FallRiskSource 接口
+├── mapping.py          # 正式状态到业务字段和中文摘要的映射
+└── service.py          # 房间能力路由与 overview 聚合
 
-模块接收后端内部视频或结构化人体事件，不直接依赖 Android UI、数据库实现或萤石供应商数据结构。
+backend/app/infrastructure/external/fall_risk/
+└── client.py           # 独立算法服务 HTTP client
 
-## 输出边界
+android/.../data/fall/
+├── model/FallRiskModels.kt
+├── network/FallRiskApi.kt
+└── repository/FallRiskRepository.kt
+```
 
-模块内部结果必须由Service转换为统一 `RiskEventCreate`。连续多帧对应同一跌倒过程时，必须通过 `source_event_id` 去重。
+## App API
 
-## 非目标
+`GET /api/v1/fall-risk/overview?elder_id=...` 使用现有 Bearer 身份和老人绑定关系校验，返回房间级：
 
-- 不把正常躺卧直接判定为跌倒；
-- 不绕过统一事件中心直接通知Android；
-- 不在API路由中实现姿态和时序算法；
-- 不提交真实老人监控视频和模型权重。
+- `decision_path`
+- `risk_level` 与风险指数 `risk_score`（不得在 UI 中称为跌倒概率）
+- `prediction_state`、`fall_event_status`
+- `camera_status`、`radar_status`
+- `association_status`、`joint_assessment`
+- `evidence_summary`、`updated_at`
+
+App contract 不包含 Fixed Fusion score、A/B/C 实验名、checkpoint、raw track ID、sync delta、association confidence、shadow-only 或大量 reason codes。
+
+## 上游接口配置
+
+启用 `APP_FALL_RISK_ENABLED=true` 后配置：
+
+- 客厅 C 路：`APP_FALL_RISK_BASE_URL` 指向现有多模态原型服务，请求只读投影 `GET /api/multimodal/camera-led-associated/latest`。该端点复用现有 C 路结果，并保留 `shadow_only=true`、`affects_alerts=false` 语义；不暴露或依赖 Fixed Fusion。
+- 卫生间/卧室 Radar-only：`APP_FALL_RISK_RADAR_ROOM_URLS` 以 JSON 对象配置每个房间的 Radar 服务基址，各自请求 `GET /api/radar/latest`。Radar 服务实例的响应内 `room` 必须和配置键一致。
+
+真实算法端点都没有 `elder_id` 参数，Adapter 不会把 App 用户标识转发给算法服务。路径可以通过环境变量调整；上游不可用、房间不匹配或载荷不合法时只把对应房间映射为 `unavailable`，不阻断首页其他能力。
+
+## 真实字段边界
+
+- 客厅主风险：`camera.camera_score`、`camera.camera_risk_state`；`associated_risk_augmentation.associated_risk_state` 作为 C 路预测状态。
+- 关联证据：`associated_evidence_state`、`association_state`、`radar_motion_evidence_strength`；只转换成用户可理解的 `joint_assessment` 与摘要。
+- 传感器状态：两路各自的 `available` 与 `quality_level`。
+- 事件：`fall_event.fall_event_status`。
+- Radar-only：优先 `calibrated_tcn_prediction`，其次 `tcn_prediction` 或 `tcn_baseline`；读取 `pre_fall_score`、正式状态、`score_valid`、`data_quality`、`shadow_only` 与 `alert_suppressed`。
+
+`fusion`、`temporal_associated_fusion`、checkpoint、阈值、raw track/sync/association 字段和 reason codes 只留在算法响应或调试日志，不进入 App-facing contract。

@@ -57,3 +57,17 @@ datasets/
 *.mp4
 *.mov
 *.avi
+
+# Psychology algorithm engineering (migrated under backend module)
+# OpenFace 729MB 完整发行包不入库（见 backend/app/modules/psychology/home_detection_pkg/README.md）
+backend/app/modules/psychology/OpenFace_2.2.0_win_x64/
+# 运行期产物：latest snapshots、OpenFace CSV、临时推理输出
+backend/app/modules/psychology/home_detection_pkg/home_out/
+
+# Fall radar algorithm (migrated under backend module)
+# 运行时数据/工具链不入库（TI SDK、原始点云见仓库外原雷达模块）
+backend/app/modules/fall/radar_module/data/
+backend/app/modules/fall/radar_module/tmp/
+backend/app/modules/fall/radar_module/.env
+# 校准 TCN 推理必需模型（覆盖根 .gitignore 的 *.pt 全局规则）
+!backend/app/modules/fall/radar_module/checkpoints/experiments_v5/tcn_hard_negative/tcn_0p5_1p0_specificity_operating_point_v1.pt

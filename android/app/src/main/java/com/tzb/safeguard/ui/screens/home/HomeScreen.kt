@@ -52,7 +52,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.tzb.safeguard.ServiceLocator
+import com.tzb.safeguard.data.fall.model.FallRiskOverview
+import com.tzb.safeguard.data.fall.model.RoomFallRisk
 import com.tzb.safeguard.data.model.RiskEvent
+import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.ui.components.AppBottomBar
 import com.tzb.safeguard.ui.components.AppTabs
 import com.tzb.safeguard.ui.components.EvidenceImage
@@ -73,7 +76,13 @@ import com.tzb.safeguard.ui.theme.TextSecondary
 @Composable
 fun HomeScreen(
     navController: NavHostController,
-    vm: HomeViewModel = appViewModel { HomeViewModel(ServiceLocator.repository) },
+    vm: HomeViewModel = appViewModel {
+        HomeViewModel(
+            ServiceLocator.repository,
+            ServiceLocator.fallRiskRepository,
+            ServiceLocator.psychologyRepository,
+        )
+    },
 ) {
     val state by vm.state.collectAsState()
     val notice by vm.notice.collectAsState()
@@ -139,8 +148,16 @@ fun HomeScreen(
                         }
                     }
                 }
-                item { ModulePlaceholder("跌倒风险预测", "待算法模块接入", Icons.Filled.WatchLater) }
-                item { ModulePlaceholder("心理健康趋势", "待算法模块接入", Icons.Filled.Psychology) }
+                item {
+                    FallRiskSummaryCard(data.fallRisk) {
+                        navController.navigate(Routes.FALL) { launchSingleTop = true }
+                    }
+                }
+                item {
+                    PsychologySummaryCard(data.psychology) {
+                        navController.navigate(Routes.CARE) { launchSingleTop = true }
+                    }
+                }
                 item { Spacer(Modifier.height(4.dp)) }
             }
         }
@@ -309,17 +326,131 @@ private fun EmptyPredictionCard() {
 }
 
 @Composable
-private fun ModulePlaceholder(title: String, status: String, icon: ImageVector) {
+private fun FallRiskSummaryCard(overview: FallRiskOverview?, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFF8FAFF),
+        border = BorderStroke(1.dp, LineColor),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.WatchLater, contentDescription = null, tint = Primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("跌倒风险预测", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "雷达+摄像头多模态监测",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+                Text(
+                    overview?.let { fallOverallLabel(it.overall_risk_level) }
+                        ?: "风险服务暂不可用",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+            overview?.rooms?.forEach { room ->
+                Spacer(Modifier.height(9.dp))
+                FallRiskRoomRow(room)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FallRiskRoomRow(room: RoomFallRisk) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "${room.room_name} · ${fallDecisionLabel(room.decision_path)}",
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+            )
+            Text(room.evidence_summary, color = TextSecondary, fontSize = 12.sp)
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            fallRiskLevelLabel(room.risk_level),
+            color = fallRiskLevelColor(room.risk_level),
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+private fun fallDecisionLabel(path: String): String = when (path) {
+    "camera_led_radar_evidence" -> "视觉主判断 · 雷达证据增强"
+    "camera_only" -> "视觉监测"
+    "radar_only" -> "雷达单模态监测"
+    else -> "监测暂不可用"
+}
+
+private fun fallOverallLabel(level: String): String = when (level) {
+    "critical", "high" -> "存在需要关注的跌倒风险"
+    "medium" -> "发现风险变化，正在持续监测"
+    "normal", "low" -> "各房间正在稳定监测"
+    else -> "部分房间监测暂不可用"
+}
+
+private fun fallRiskLevelLabel(level: String): String = when (level) {
+    "critical" -> "紧急"
+    "high" -> "高风险"
+    "medium" -> "需关注"
+    "low" -> "低风险"
+    "normal" -> "正常"
+    else -> "不可用"
+}
+
+private fun fallRiskLevelColor(level: String): Color = when (level) {
+    "critical", "high" -> Color(0xFFD92D20)
+    "medium" -> Color(0xFFDC6803)
+    "normal", "low" -> SafeGreen
+    else -> TextSecondary
+}
+
+@Composable
+private fun PsychologySummaryCard(state: UiState<PsychologyOverview>, onClick: () -> Unit) {
+    val status = when (state) {
+        UiState.Loading -> "读取中"
+        is UiState.Error -> "服务暂不可用"
+        is UiState.Success -> when (state.data.assessment_state) {
+            "collecting" -> "正在采集资料"
+            "observation_available" -> "最近评估已完成"
+            "insufficient_data" -> "数据不足"
+            else -> "服务暂不可用"
+        }
+    }
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color(0xFFFAFAFB),
         border = BorderStroke(1.dp, LineColor),
+        modifier = Modifier.clickable(onClick = onClick),
     ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = Color(0xFF98A2B3))
+            Icon(Icons.Filled.Psychology, contentDescription = null, tint = Primary)
             Spacer(Modifier.width(10.dp))
-            Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text("心理健康评估", fontWeight = FontWeight.SemiBold)
+                Text("基于摄像头面部行为特征", color = TextSecondary, fontSize = 12.sp)
+            }
             Text(status, color = TextSecondary, fontSize = 12.sp)
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(12.dp),
+            )
         }
     }
 }

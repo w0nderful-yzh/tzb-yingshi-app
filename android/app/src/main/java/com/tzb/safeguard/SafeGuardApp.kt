@@ -2,7 +2,9 @@ package com.tzb.safeguard
 
 import android.app.Application
 import com.tzb.safeguard.data.auth.AuthStore
+import com.tzb.safeguard.data.fall.repository.FallRiskRepository
 import com.tzb.safeguard.data.network.NetworkModule
+import com.tzb.safeguard.data.psychology.repository.PsychologyRepository
 import com.tzb.safeguard.data.repository.SafeRepository
 import okhttp3.OkHttpClient
 
@@ -14,6 +16,10 @@ object ServiceLocator {
         private set
     lateinit var repository: SafeRepository
         private set
+    lateinit var fallRiskRepository: FallRiskRepository
+        private set
+    lateinit var psychologyRepository: PsychologyRepository
+        private set
     lateinit var httpClient: OkHttpClient
         private set
 
@@ -24,6 +30,8 @@ object ServiceLocator {
             NetworkModule.createApiService(httpClient),
             authStore,
         )
+        fallRiskRepository = FallRiskRepository(NetworkModule.createFallRiskApi(httpClient))
+        psychologyRepository = PsychologyRepository(NetworkModule.createPsychologyApi(httpClient))
     }
 }
 

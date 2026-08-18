@@ -228,8 +228,8 @@ private fun SettingsCard() {
     AppCard {
         Text("能力接入状态", style = MaterialTheme.typography.titleLarge)
         CapabilityRow("诈骗风险预测", "运行中", SafeGreen)
-        CapabilityRow("跌倒风险预测", "待模块接入", TextSecondary)
-        CapabilityRow("心理健康趋势", "待模块接入", TextSecondary)
+        CapabilityRow("跌倒风险预测", "运行中", SafeGreen)
+        CapabilityRow("心理健康评估", "已接入", SafeGreen)
         Spacer(Modifier.height(8.dp))
         Text("萤石密钥仅保留在后端；事件证据按后端留存策略管理。",
             style = MaterialTheme.typography.bodySmall)
