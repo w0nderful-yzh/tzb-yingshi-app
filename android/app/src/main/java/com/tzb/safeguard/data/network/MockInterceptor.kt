@@ -26,6 +26,7 @@ class MockInterceptor : Interceptor {
             path == "/api/v1/auth/login" && method == "POST" -> ok(LOGIN_JSON)
             path == "/api/v1/auth/logout" && method == "POST" -> ok("{}")
             path == "/api/v1/users/me" -> ok(USER_JSON)
+            path == "/api/v1/fall-risk/overview" && method == "GET" -> ok(FALL_RISK_JSON)
 
             // ---------- 事件 ----------
             path == "/api/v1/events" && method == "GET" -> ok(EVENTS_JSON)
@@ -70,6 +71,25 @@ class MockInterceptor : Interceptor {
         private const val USER_JSON = """
             {"user_id":"u-family-001","role":"family","name":"演示家属",
              "bound_family_count":0,"font_size":"large","voice_assist_enabled":false}"""
+
+        private const val FALL_RISK_JSON = """
+            {"overall_risk_level":"medium","generated_at":"2026-08-15T10:30:00+08:00","rooms":[
+              {"room_id":"living_room","room_name":"客厅","decision_path":"camera_led_radar_evidence",
+               "risk_level":"low","risk_score":0.18,"prediction_state":"stable","fall_event_status":"none",
+               "camera_status":"available","radar_status":"available","association_status":"associated",
+               "joint_assessment":"radar_supports_camera","evidence_summary":"视觉主判断与雷达运动证据一致",
+               "updated_at":"2026-08-15T10:29:58+08:00"},
+              {"room_id":"bathroom","room_name":"卫生间","decision_path":"radar_only",
+               "risk_level":"medium","risk_score":0.53,"prediction_state":"elevated_risk","fall_event_status":"none",
+               "camera_status":"not_applicable","radar_status":"available","association_status":"not_required",
+               "joint_assessment":"radar_only","evidence_summary":"当前使用雷达单模态进行短时跌倒风险监测",
+               "updated_at":"2026-08-15T10:29:57+08:00"},
+              {"room_id":"bedroom","room_name":"卧室","decision_path":"radar_only",
+               "risk_level":"normal","risk_score":0.08,"prediction_state":"stable","fall_event_status":"none",
+               "camera_status":"not_applicable","radar_status":"available","association_status":"not_required",
+               "joint_assessment":"radar_only","evidence_summary":"当前使用雷达单模态进行短时跌倒风险监测",
+               "updated_at":"2026-08-15T10:29:56+08:00"}
+            ]}"""
 
         private const val DEVICES_JSON = """
             {"devices":[
