@@ -28,6 +28,8 @@ def test_app_phase_one_routes_are_exposed() -> None:
         "/api/v1/family/elders",
         "/api/v1/stats/events",
         "/api/v1/stats/activity",
+        "/api/v1/fall-risk/overview",
+        "/api/v1/psychology/overview",
     } <= set(paths)
 
 
@@ -41,6 +43,10 @@ def test_app_business_routes_require_bearer_authentication() -> None:
     }
     assert schema["paths"]["/api/v1/auth/login"]["post"].get("security") is None
     assert schema["paths"]["/api/v1/users/me"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/api/v1/fall-risk/overview"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/api/v1/psychology/overview"]["get"]["security"] == [
+        {"HTTPBearer": []}
+    ]
     assert schema["paths"]["/api/v1/ws/tickets"]["post"]["security"] == [{"HTTPBearer": []}]
     parameters = schema["paths"]["/api/v1/users/me"]["get"].get("parameters", [])
     assert all(item["name"] != "X-Demo-Role" for item in parameters)

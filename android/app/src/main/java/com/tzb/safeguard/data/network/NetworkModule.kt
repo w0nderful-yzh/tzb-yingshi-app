@@ -3,6 +3,8 @@ package com.tzb.safeguard.data.network
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.tzb.safeguard.BuildConfig
 import com.tzb.safeguard.data.auth.AuthStore
+import com.tzb.safeguard.data.fall.network.FallRiskApi
+import com.tzb.safeguard.data.psychology.network.PsychologyApi
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -60,11 +62,25 @@ object NetworkModule {
             .build()
 
     fun createApiService(okHttpClient: OkHttpClient): ApiService {
+        return createRetrofit(okHttpClient)
+            .create(ApiService::class.java)
+    }
+
+    fun createFallRiskApi(okHttpClient: OkHttpClient): FallRiskApi {
+        return createRetrofit(okHttpClient)
+            .create(FallRiskApi::class.java)
+    }
+
+    fun createPsychologyApi(okHttpClient: OkHttpClient): PsychologyApi {
+        return createRetrofit(okHttpClient)
+            .create(PsychologyApi::class.java)
+    }
+
+    private fun createRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
-            .create(ApiService::class.java)
     }
 }

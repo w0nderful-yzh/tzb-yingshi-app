@@ -86,6 +86,20 @@ class Settings(BaseSettings):
     fraud_preliminary_confirm_min_state_index: int = Field(default=2, ge=0, le=5)
     fraud_semantic_retriever_enabled: bool = False
     fraud_recent_risk_enabled: bool = False
+    fall_risk_enabled: bool = False
+    # Existing multimodal prototype base URL (living-room Camera-led C path).
+    fall_risk_base_url: str | None = None
+    # Each Radar process represents one RADAR_ROOM and exposes /api/radar/latest.
+    fall_risk_radar_room_urls: dict[str, str] = Field(default_factory=dict)
+    fall_risk_api_key: SecretStr | None = None
+    fall_risk_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
+    fall_risk_camera_led_path: str = "/api/multimodal/camera-led-associated/latest"
+    fall_risk_radar_only_path: str = "/api/radar/latest"
+    psychology_enabled: bool = False
+    psychology_base_url: str | None = None
+    psychology_api_key: SecretStr | None = None
+    psychology_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
+    psychology_latest_path: str = "/api/psychology/assessments/latest"
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",
