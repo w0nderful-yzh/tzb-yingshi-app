@@ -22,9 +22,7 @@ def test_phone_context_marks_telecom_fraud() -> None:
 
 def test_people_count_without_phone_marks_home_visit() -> None:
     evidence = {
-        "evidence_chain": [
-            {"kind": "people_count_context", "source": "video", "people_count": 2}
-        ]
+        "evidence_chain": [{"kind": "people_count_context", "source": "video", "people_count": 2}]
     }
 
     assert _fraud_scene(evidence) == "home_visit"

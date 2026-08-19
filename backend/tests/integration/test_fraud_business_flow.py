@@ -297,9 +297,7 @@ async def test_latency_trace_records_decision_stages(
     finally:
         configure_tracing(enabled=False)
 
-    latency_records = [
-        record for record in caplog.records if hasattr(record, "fraud_latency")
-    ]
+    latency_records = [record for record in caplog.records if hasattr(record, "fraud_latency")]
     assert latency_records, "expected a fraud_latency structured log record"
     payload = latency_records[-1].fraud_latency
     stages = payload["stages"]

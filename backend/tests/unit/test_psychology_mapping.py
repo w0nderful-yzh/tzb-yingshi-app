@@ -80,4 +80,3 @@ def test_insufficient_data_stays_non_diagnostic() -> None:
 
     assert result.source_status is SourceStatus.INSUFFICIENT_DATA
     assert result.attention_level == "unknown"
-

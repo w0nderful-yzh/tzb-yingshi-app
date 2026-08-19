@@ -26,9 +26,7 @@ class FakePsychologySource:
 
 @pytest.mark.asyncio
 async def test_service_reads_latest_reference_observation() -> None:
-    result = await PsychologyService(FakePsychologySource()).get_overview(
-        subject_key="elder-001"
-    )
+    result = await PsychologyService(FakePsychologySource()).get_overview(subject_key="elder-001")
 
     assert result.source_status is SourceStatus.AVAILABLE
     assert result.assessment_state is AssessmentState.OBSERVATION_AVAILABLE
@@ -41,4 +39,3 @@ async def test_service_fails_closed_without_source() -> None:
 
     assert result.source_status is SourceStatus.UNAVAILABLE
     assert result.attention_level == "unknown"
-

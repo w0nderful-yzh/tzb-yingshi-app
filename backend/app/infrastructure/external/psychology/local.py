@@ -13,10 +13,7 @@ from app.modules.psychology.ports import PsychologySourceError
 from app.modules.psychology.source_schemas import PsychologySourceSnapshot
 
 _HOME_DETECTION_PKG = (
-    Path(__file__).resolve().parents[3]
-    / "modules"
-    / "psychology"
-    / "home_detection_pkg"
+    Path(__file__).resolve().parents[3] / "modules" / "psychology" / "home_detection_pkg"
 )
 
 

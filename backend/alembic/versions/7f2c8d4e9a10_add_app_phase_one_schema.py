@@ -558,8 +558,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_event_actions_new_status_values"),
         "event_actions",
-        "new_status IS NULL OR new_status IN "
-        "('OPEN', 'ACKNOWLEDGED', 'FALSE_ALARM', 'RESOLVED')",
+        "new_status IS NULL OR new_status IN ('OPEN', 'ACKNOWLEDGED', 'FALSE_ALARM', 'RESOLVED')",
     )
     op.create_check_constraint(
         op.f("ck_event_actions_previous_status_values"),
@@ -693,8 +692,7 @@ def downgrade() -> None:
     op.create_check_constraint(
         op.f("ck_event_actions_new_status_values"),
         "event_actions",
-        "new_status IS NULL OR new_status IN "
-        "('PENDING', 'CONFIRMED', 'FALSE_ALARM', 'RESOLVED')",
+        "new_status IS NULL OR new_status IN ('PENDING', 'CONFIRMED', 'FALSE_ALARM', 'RESOLVED')",
     )
     op.create_check_constraint(
         op.f("ck_event_actions_previous_status_values"),

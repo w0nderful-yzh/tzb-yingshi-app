@@ -52,4 +52,3 @@ class HttpPsychologySource:
 
     async def close(self) -> None:
         await self._client.aclose()
-

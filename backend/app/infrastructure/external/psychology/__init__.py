@@ -3,4 +3,3 @@
 from app.infrastructure.external.psychology.client import HttpPsychologySource
 
 __all__ = ["HttpPsychologySource"]
-

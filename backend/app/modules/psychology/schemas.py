@@ -55,4 +55,3 @@ class PsychologyOverview(BaseModel):
     guidance: str
     updated_at: datetime | None = None
     disclaimer: str
-

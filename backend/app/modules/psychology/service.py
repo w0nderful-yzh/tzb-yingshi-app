@@ -22,4 +22,3 @@ class PsychologyService:
             logger.warning("psychology source unavailable: %s", type(exc).__name__)
             return unavailable_overview()
         return map_psychology_snapshot(snapshot)
-

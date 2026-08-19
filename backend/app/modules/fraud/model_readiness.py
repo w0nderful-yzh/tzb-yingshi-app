@@ -41,11 +41,7 @@ class ModelReadinessSnapshot:
     @property
     def models_ready(self) -> ModelState:
         """Aggregate state of the ASR models that gate real audio ingestion."""
-        states = {
-            state
-            for state in (self.sensevoice, self.paraformer)
-            if state != DISABLED
-        }
+        states = {state for state in (self.sensevoice, self.paraformer) if state != DISABLED}
         if FAILED in states:
             return FAILED
         if WARMING_UP in states:

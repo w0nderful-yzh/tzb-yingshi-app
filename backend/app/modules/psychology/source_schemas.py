@@ -19,4 +19,3 @@ class PsychologySourceSnapshot(BaseModel):
     segment_scores: list[float] = Field(default_factory=list)
     clip_count: int = Field(default=0, ge=0)
     completed_at: datetime | None = None
-
