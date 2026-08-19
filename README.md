@@ -171,6 +171,27 @@ docker compose logs -f backend
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
+## Radar 为可选能力
+
+跌倒风险中的雷达（Radar）监测是**可选能力**，不影响项目正常启动：
+
+- 项目唯一正常启动方式仍然是 `docker compose up`（或 `docker compose up --build -d`）。普通队友**不需要安装 torch / TI 环境，也不需要启动任何 Radar 进程**。
+- 没有 Radar worker 运行时，Backend 正常启动，`/api/v1/fall-risk/overview` 返回 `unavailable`，App 跌倒页面显示"监测暂不可用 / 等待数据流"。
+- 需要 Radar 的机器**单独启动** worker，Backend 会自动读取其状态，无需手动启动 8010/8011：
+
+```bash
+<你的Python路径> -m radar_module.service.radar_worker_main \
+  --room bathroom \
+  --replay-file <replay数据文件> \
+  --checkpoint <校准TCN checkpoint> \
+  --calibration <校准文件> \
+  --runtime-state-dir backend/app/modules/fall/radar_module/runtime_state \
+  --loop
+```
+
+- worker 写入 `backend/app/modules/fall/radar_module/runtime_state/`（每房间一个 `<room>_latest.json`），Backend 的 `LocalRadarSource` 自动读取并映射到 Fall 接口。
+- `real` 真雷达模式（TI 桥接）当前**尚未接入**该 worker，属于后续能力。
+
 接口文档位于 `http://127.0.0.1:8000/docs`。Android 模拟器仍需执行 `adb reverse tcp:8000 tcp:8000`；Android App 本身不在容器中构建。
 
 需要萤石、LLM 或其他可选能力时，先复制配置模板并填写自己的密钥，再重新启动：
