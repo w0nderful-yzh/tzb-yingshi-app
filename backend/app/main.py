@@ -17,6 +17,7 @@ from app.infrastructure.event_queue import Ys7EventQueue
 from app.infrastructure.external.fall_risk import HttpFallRiskSource
 from app.infrastructure.external.llm import OpenAiCompatibleFraudLlmJudge
 from app.infrastructure.external.psychology import HttpPsychologySource
+from app.infrastructure.external.psychology.local import LocalPsychologySource
 from app.infrastructure.external.sensevoice import (
     ParaformerStreamingRecognizer,
     SenseVoiceRecognizer,
@@ -101,22 +102,23 @@ def create_app(
     fall_risk_service = FallRiskService(runtime_fall_source)
     psychology_source_client: HttpPsychologySource | None = None
     runtime_psychology_source = psychology_source
-    if (
-        runtime_settings.psychology_enabled
-        and runtime_psychology_source is None
-        and runtime_settings.psychology_base_url
-    ):
-        psychology_source_client = HttpPsychologySource(
-            base_url=runtime_settings.psychology_base_url,
-            timeout_seconds=runtime_settings.psychology_timeout_seconds,
-            api_key=(
-                runtime_settings.psychology_api_key.get_secret_value()
-                if runtime_settings.psychology_api_key is not None
-                else None
-            ),
-            latest_path=runtime_settings.psychology_latest_path,
-        )
-        runtime_psychology_source = psychology_source_client
+    if runtime_psychology_source is None and runtime_settings.psychology_enabled:
+        if runtime_settings.psychology_base_url:
+            # Legacy HTTP projection (:8020) — explicit fallback only.
+            psychology_source_client = HttpPsychologySource(
+                base_url=runtime_settings.psychology_base_url,
+                timeout_seconds=runtime_settings.psychology_timeout_seconds,
+                api_key=(
+                    runtime_settings.psychology_api_key.get_secret_value()
+                    if runtime_settings.psychology_api_key is not None
+                    else None
+                ),
+                latest_path=runtime_settings.psychology_latest_path,
+            )
+            runtime_psychology_source = psychology_source_client
+        else:
+            # Default: read the latest snapshot directly from the algorithm store.
+            runtime_psychology_source = LocalPsychologySource()
     psychology_service = PsychologyService(runtime_psychology_source)
     risk_event_repository = (
         RiskEventRepository(database, realtime_broker=realtime_event_broker)
