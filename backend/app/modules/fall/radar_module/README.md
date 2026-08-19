@@ -140,7 +140,7 @@ python -m radar_module.dataset.mmfall_research_v2 `
   --output "data/processed/mmfall_ds2_research_v2.npz" `
   --allow-weak-supervision
 
-E:\python3.10.9aaa\python.exe -m radar_module.model.research_training_v2 `
+<TI Python 路径>\python.exe -m radar_module.model.research_training_v2 `
   --dataset "data/processed/mmfall_ds2_research_v2.npz" `
   --checkpoint "checkpoints/radar_lstm_research_weak_v2.pt"
 ```
@@ -157,7 +157,7 @@ python -m radar_module.dataset.radhar_converter `
   --data-directory "data/external/radhar/Data" `
   --output "data/processed/radhar_squat_jump_hard_negatives_v2.npz"
 
-E:\python3.10.9aaa\python.exe -m radar_module.model.research_evaluation_v2 `
+<TI Python 路径>\python.exe -m radar_module.model.research_evaluation_v2 `
   --checkpoint "checkpoints/radar_lstm_research_weak_v2.pt" `
   --dataset "data/processed/radhar_squat_jump_hard_negatives_v2.npz" `
   --report "checkpoints/radar_lstm_research_weak_v2.radhar_report.json"
@@ -170,7 +170,7 @@ E:\python3.10.9aaa\python.exe -m radar_module.model.research_evaluation_v2 `
 离线影子推理不会调用事件路由或告警接口：
 
 ```powershell
-E:\python3.10.9aaa\python.exe -m radar_module.inference.research_shadow_v2 `
+<TI Python 路径>\python.exe -m radar_module.inference.research_shadow_v2 `
   --replay "data/replay/mmfall_ds1_4normal.jsonl" `
   --checkpoint "checkpoints/radar_lstm_research_weak_v2.pt" `
   --output "data/shadow/mmfall_ds1_4normal.shadow.jsonl" `
@@ -196,7 +196,7 @@ python -m radar_module.dataset.dguha_research_v2 `
   --output "data/processed/dguha_research_v2.npz" `
   --allow-skeleton-pseudolabels
 
-E:\python3.10.9aaa\python.exe -m radar_module.model.research_training_v2 `
+<TI Python 路径>\python.exe -m radar_module.model.research_training_v2 `
   --dataset "data/processed/dguha_research_v2.npz" `
   --checkpoint "checkpoints/radar_lstm_research_dguha_v2.pt" `
   --epochs 30
@@ -245,11 +245,11 @@ DGUHA 单域 checkpoint 在 mmRadPose 上窗口误报率 1.28%，在 RadHAR
 明确为末端2秒“跌倒过程/非跌倒”辅助分类，不是跌倒前预测：
 
 ```powershell
-E:\python3.10.9aaa\python.exe -m radar_module.dataset.iwr6843_fall_v1 `
+<TI Python 路径>\python.exe -m radar_module.dataset.iwr6843_fall_v1 `
   --source "data/external/iwr6843_fall_102/mmwave-radar-fall-detection-main" `
   --output "data/processed/iwr6843_fall_sequence_auxiliary_v1.npz"
 
-E:\python3.10.9aaa\python.exe -m radar_module.model.iwr6843_fall_auxiliary_v1 `
+<TI Python 路径>\python.exe -m radar_module.model.iwr6843_fall_auxiliary_v1 `
   --source "data/external/iwr6843_fall_102/mmwave-radar-fall-detection-main" `
   --output-directory "checkpoints/iwr6843_fall_auxiliary_loso_v1"
 ```
@@ -266,7 +266,7 @@ checkpoint使用独立模型模式，实时预测加载器不会接受它。
 外部困难负样本复测示例：
 
 ```powershell
-E:\python3.10.9aaa\python.exe -m radar_module.model.research_evaluation_v2 `
+<TI Python 路径>\python.exe -m radar_module.model.research_evaluation_v2 `
   --checkpoint "checkpoints/radar_lstm_research_dguha_v2.pt" `
   --dataset "data/processed/mmradpose_hard_negatives_v2.npz" `
   --report "checkpoints/radar_lstm_research_dguha_v2.mmradpose_report.json"
@@ -372,8 +372,8 @@ python -m pip install -r requirements.txt
 
 ```text
 RADAR_ROOM=bathroom
-TI_OFFICIAL_OUTPUT_COMMAND_JSON=["E:\\python3.10.9aaa\\python.exe","-m","radar_module.acquisition.ti_official_bridge","--cli-port","COM5","--data-port","COM6"]
-TI_OFFICIAL_OUTPUT_CWD=E:\创新实践\老人摔倒预警\雷达模块
+TI_OFFICIAL_OUTPUT_COMMAND_JSON=["<TI Python 路径>","-m","radar_module.acquisition.ti_official_bridge","--cli-port","COM5","--data-port","COM6"]
+TI_OFFICIAL_OUTPUT_CWD=<radar_module 目录>
 ```
 
 桥接输出只需包含 `timestamp` 与 `points`。点字段支持：

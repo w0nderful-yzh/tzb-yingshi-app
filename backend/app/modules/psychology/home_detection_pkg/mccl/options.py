@@ -103,7 +103,8 @@ class Options(object):
 
         # ==================== 数据路径 ====================
         parser.add_argument('--dataset_path',
-                    default=r'E:/daic-woz/DAIC_WOZ-generated_database_V2')
+                    default='',
+                    help='DAIC-WOZ 训练数据根目录；训练时必须通过参数传入，不绑定本机盘符')
         parser.add_argument('--output_path', default='./outputs', help='日志和模型保存路径')
         parser.add_argument('--output_name', default='e1-h2-b8-s1-w0', help='实验名称')
         parser.add_argument('--num_workers', default=0)

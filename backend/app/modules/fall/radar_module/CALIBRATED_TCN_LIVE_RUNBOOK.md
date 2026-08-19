@@ -19,7 +19,7 @@
 2. 冻结 TCN checkpoint 存在且 SHA256 匹配：
    `checkpoints/experiments_v5/tcn_hard_negative/tcn_0p5_1p0_specificity_operating_point_v1.pt`
    SHA256 `0792a712b57ae89875b2d57e6ba7a20763618a2718e961cf8c48acebe34970ef`。
-3. 使用项目训练 Python：`E:\python3.10.9aaa\python.exe`。
+3. 使用项目训练 Python：`<TI Python 路径>\python.exe`。
 
 ## 一键启动（REPLAY 演示）
 
@@ -71,14 +71,14 @@ Invoke-RestMethod http://127.0.0.1:8010/api/radar/latest
 ## 手动启动（等价）
 
 ```powershell
-cd "E:\创新实践\老人摔倒预警\雷达模块"
+cd "<radar_module 目录>"
 $env:RADAR_POINTNET_SHADOW_ENABLED = "false"
 $env:RADAR_TCN_SHADOW_ENABLED = "true"
 $env:RADAR_TCN_CHECKPOINT_PATH = ".\checkpoints\experiments_v5\tcn_hard_negative\tcn_0p5_1p0_specificity_operating_point_v1.pt"
 $env:RADAR_TCN_CHECKPOINT_SHA256 = "0792a712b57ae89875b2d57e6ba7a20763618a2718e961cf8c48acebe34970ef"
 $env:RADAR_CALIBRATED_TCN_SHADOW_ENABLED = "true"
 $env:RADAR_CALIBRATED_TCN_CALIBRATION_PATH = ".\reports\domain_calibration_v1_full\calibrated_normalization_real_gaussian.json"
-& "E:\python3.10.9aaa\python.exe" -m uvicorn radar_module.service.radar_api:app --host 127.0.0.1 --port 8010
+& "<TI Python 路径>\python.exe" -m uvicorn radar_module.service.radar_api:app --host 127.0.0.1 --port 8010
 ```
 
 ## 真机 REAL 模式
