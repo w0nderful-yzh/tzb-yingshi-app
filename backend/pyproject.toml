@@ -59,7 +59,10 @@ addopts = "-q"
 target-version = "py312"
 line-length = 100
 # 算法工程照搬代码，不属于后端 Adapter，跳过 lint（迁移最小适配）
-extend-exclude = ["app/modules/psychology/home_detection_pkg"]
+extend-exclude = [
+    "app/modules/psychology/home_detection_pkg",
+    "app/modules/fall/radar_module",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -68,7 +71,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.12"
 strict = true
 files = ["app"]
-exclude = ["app/modules/psychology/home_detection_pkg"]
+exclude = [
+    "app/modules/psychology/home_detection_pkg",
+    "app/modules/fall/radar_module",
+]
 
 [[tool.mypy.overrides]]
 module = ["funasr", "funasr.*", "imageio_ffmpeg", "webrtcvad"]

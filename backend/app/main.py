@@ -15,6 +15,7 @@ from app.infrastructure.database.session import Database
 from app.infrastructure.event_deduplicator import EventDeduplicator
 from app.infrastructure.event_queue import Ys7EventQueue
 from app.infrastructure.external.fall_risk import HttpFallRiskSource
+from app.infrastructure.external.fall_risk.local import LocalRadarSource
 from app.infrastructure.external.llm import OpenAiCompatibleFraudLlmJudge
 from app.infrastructure.external.psychology import HttpPsychologySource
 from app.infrastructure.external.psychology.local import LocalPsychologySource
@@ -78,27 +79,25 @@ def create_app(
     realtime_event_broker = RealtimeEventBroker()
     fall_source_client: HttpFallRiskSource | None = None
     runtime_fall_source = fall_risk_source
-    if (
-        runtime_settings.fall_risk_enabled
-        and runtime_fall_source is None
-        and (
-            runtime_settings.fall_risk_base_url
-            or runtime_settings.fall_risk_radar_room_urls
-        )
-    ):
-        fall_source_client = HttpFallRiskSource(
-            camera_base_url=runtime_settings.fall_risk_base_url,
-            radar_room_base_urls=runtime_settings.fall_risk_radar_room_urls,
-            timeout_seconds=runtime_settings.fall_risk_timeout_seconds,
-            api_key=(
-                runtime_settings.fall_risk_api_key.get_secret_value()
-                if runtime_settings.fall_risk_api_key is not None
-                else None
-            ),
-            camera_led_path=runtime_settings.fall_risk_camera_led_path,
-            radar_only_path=runtime_settings.fall_risk_radar_only_path,
-        )
-        runtime_fall_source = fall_source_client
+    if runtime_fall_source is None and runtime_settings.fall_risk_enabled:
+        if runtime_settings.fall_risk_base_url or runtime_settings.fall_risk_radar_room_urls:
+            # Legacy HTTP radar/algorithm services — explicit fallback only.
+            fall_source_client = HttpFallRiskSource(
+                camera_base_url=runtime_settings.fall_risk_base_url,
+                radar_room_base_urls=runtime_settings.fall_risk_radar_room_urls,
+                timeout_seconds=runtime_settings.fall_risk_timeout_seconds,
+                api_key=(
+                    runtime_settings.fall_risk_api_key.get_secret_value()
+                    if runtime_settings.fall_risk_api_key is not None
+                    else None
+                ),
+                camera_led_path=runtime_settings.fall_risk_camera_led_path,
+                radar_only_path=runtime_settings.fall_risk_radar_only_path,
+            )
+            runtime_fall_source = fall_source_client
+        else:
+            # 默认：读取雷达 worker 快照（本地模式，无 :8010/:8011 依赖）。
+            runtime_fall_source = LocalRadarSource()
     fall_risk_service = FallRiskService(runtime_fall_source)
     psychology_source_client: HttpPsychologySource | None = None
     runtime_psychology_source = psychology_source
