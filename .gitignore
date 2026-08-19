@@ -71,5 +71,7 @@ backend/app/modules/fall/radar_module/tmp/
 backend/app/modules/fall/radar_module/.env
 # 雷达 worker 运行期快照（每房间 latest 状态）
 backend/app/modules/fall/radar_module/runtime_state/
+# 开发 launcher 的 worker PID 记录
+.runtime/
 # 校准 TCN 推理必需模型（覆盖根 .gitignore 的 *.pt 全局规则）
 !backend/app/modules/fall/radar_module/checkpoints/experiments_v5/tcn_hard_negative/tcn_0p5_1p0_specificity_operating_point_v1.pt

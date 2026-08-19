@@ -91,7 +91,12 @@ def main() -> int:
                 if not args.loop:
                     break
                 continue
-            result = predictor.consume(frame)
+            try:
+                result = predictor.consume(frame)
+            except ValueError:
+                # Replay loop wrap-around resets frame timestamps; reset and continue.
+                predictor.reset()
+                continue
             if result is None:
                 continue
             now = time.monotonic()
