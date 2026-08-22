@@ -28,6 +28,16 @@ def _write_snapshot(store_root: Path, subject_key: str, score: float = 6.42) -> 
     return path
 
 
+def _write_completed_snapshot(store_root: Path, subject_key: str, score: float = 6.42) -> Path:
+    digest = hashlib.sha256(subject_key.encode("utf-8")).hexdigest()
+    completed_root = store_root / "completed"
+    completed_root.mkdir(parents=True, exist_ok=True)
+    source = _write_snapshot(store_root, subject_key, score)
+    destination = completed_root / f"{digest}.json"
+    destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    return destination
+
+
 @pytest.mark.asyncio
 async def test_local_source_reads_latest_snapshot(tmp_path) -> None:
     source = LocalPsychologySource(store_root=tmp_path)
@@ -46,6 +56,17 @@ async def test_local_source_missing_snapshot_raises(tmp_path) -> None:
 
     with pytest.raises(PsychologySourceError):
         await source.get_latest_assessment(subject_key="nobody")
+
+
+@pytest.mark.asyncio
+async def test_local_source_reads_latest_completed_snapshot(tmp_path) -> None:
+    source = LocalPsychologySource(store_root=tmp_path)
+    _write_completed_snapshot(tmp_path, "elder-001", score=8.25)
+
+    snapshot = await source.get_latest_completed_assessment(subject_key="elder-001")
+
+    assert snapshot.status == "completed"
+    assert snapshot.estimated_phq8_score == 8.25
 
 
 @pytest.mark.asyncio

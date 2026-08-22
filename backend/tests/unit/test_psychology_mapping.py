@@ -49,8 +49,36 @@ def test_completed_result_maps_to_shadow_observation_with_raw_reference_scores()
         "guidance",
         "updated_at",
         "disclaimer",
+        "latest_completed",
     }
     assert "抑郁" not in str(payload)
+
+
+def test_processing_keeps_latest_completed_reference_visible() -> None:
+    processing = PsychologySourceSnapshot.model_validate(
+        {
+            "schema_version": "psychology_assessment_v1",
+            "assessment_id": "psy-002",
+            "subject_key": "elder-001",
+            "status": "processing",
+            "window_started_at": "2026-08-17T08:00:00+08:00",
+            "window_ended_at": "2026-08-17T08:00:00+08:00",
+            "estimated_phq8_score": None,
+            "segment_scores": [],
+            "clip_count": 0,
+            "completed_at": None,
+        }
+    )
+
+    result = map_psychology_snapshot(
+        processing,
+        latest_completed=_completed_snapshot(),
+    )
+
+    assert result.assessment_state is AssessmentState.COLLECTING
+    assert result.latest_completed is not None
+    assert result.latest_completed.estimated_phq8_score == 6.42
+    assert result.latest_completed.updated_at is not None
 
 
 def test_out_of_contract_model_score_is_not_silently_clamped_or_exposed() -> None:
