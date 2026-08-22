@@ -34,6 +34,18 @@ def create_app(store: LatestAssessmentStore | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="assessment not found")
         return snapshot
 
+    @application.get(
+        "/api/psychology/assessments/latest-completed",
+        response_model=PsychologyAssessmentSnapshot,
+    )
+    async def latest_completed_assessment(
+        subject_key: str = Query(min_length=1, max_length=128),
+    ) -> PsychologyAssessmentSnapshot:
+        snapshot = runtime_store.read_latest_completed(subject_key)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="completed assessment not found")
+        return snapshot
+
     return application
 
 

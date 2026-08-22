@@ -262,7 +262,10 @@ def capture_window_opensdk(
     """
     from service.ezviz_opensdk_capture import EzvizOpenSdkRecorder
 
+    window_label = f"{out_dir.parent.name}/{out_dir.name}"
+    log(f"  [{window_label}] token.begin")
     token = _ys7_token(args.ys7_app_key, args.ys7_app_secret)
+    log(f"  [{window_label}] token.end")
     recorder = EzvizOpenSdkRecorder(
         sdk_root=args.sdk_root,
         app_key=args.ys7_app_key,
@@ -272,10 +275,23 @@ def capture_window_opensdk(
         stream_type=args.stream_type,
         out_dir=out_dir,
     )
+    log(f"  [{window_label}] capture.begin seconds={window_seconds:.1f}")
     video = recorder.record(seconds=window_seconds)
+    log(f"  [{window_label}] capture.end file={video.name} bytes={video.stat().st_size}")
+    log(f"  [{window_label}] openface.begin")
     process = _run_openface(openface_exe, str(video), out_dir)
     _finish_openface(process, terminate=False)
+    log(f"  [{window_label}] openface.end returncode={process.returncode}")
     csvs = sorted(out_dir.glob("*.csv"))
+    log(f"  [{window_label}] csv.count={len(csvs)}")
+    # OpenFace 2.2 默认还会输出可视化 AVI、HOG 与对齐帧（几十~上百 MB/窗口），
+    # 均非模型输入且关闭参数不生效，这里取到 CSV 后立即删除，窗口目录只留
+    # mp4(OpenFace 必需输入) + csv(特征)，中断残留也仅此二者。
+    for pattern in ("*.avi", "*.hog", "*_of_details.txt"):
+        for extra in out_dir.glob(pattern):
+            extra.unlink(missing_ok=True)
+    for aligned in out_dir.glob("*_aligned"):
+        shutil.rmtree(aligned, ignore_errors=True)
     return csvs[0] if csvs else None
 
 

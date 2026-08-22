@@ -11,3 +11,9 @@ class PsychologySourceError(RuntimeError):
 
 class PsychologySource(Protocol):
     async def get_latest_assessment(self, *, subject_key: str) -> PsychologySourceSnapshot: ...
+
+    async def get_latest_completed_assessment(
+        self,
+        *,
+        subject_key: str,
+    ) -> PsychologySourceSnapshot: ...

@@ -21,4 +21,13 @@ class PsychologyService:
         except (PsychologySourceError, ValueError) as exc:
             logger.warning("psychology source unavailable: %s", type(exc).__name__)
             return unavailable_overview()
-        return map_psychology_snapshot(snapshot)
+        latest_completed = None
+        if snapshot.status == "processing":
+            try:
+                latest_completed = await self._source.get_latest_completed_assessment(
+                    subject_key=subject_key
+                )
+            except (PsychologySourceError, ValueError):
+                # A first-time assessment legitimately has no completed result.
+                latest_completed = None
+        return map_psychology_snapshot(snapshot, latest_completed=latest_completed)

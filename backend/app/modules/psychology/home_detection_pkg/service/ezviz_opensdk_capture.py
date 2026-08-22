@@ -85,38 +85,62 @@ class EzvizOpenSdkRecorder:
         self._started = False
         self._session: bytes | None = None
         self._last_data_monotonic = 0.0
+        self._first_data_monotonic = 0.0
+        self._callback_chunks = 0
+        self._callback_bytes = 0
         self.dropped_chunks = 0
         self.stderr_tail: list[str] = []
+        self._trace_label = f"{self.out_dir.parent.name}/{self.out_dir.name}/{uuid.uuid4().hex[:8]}"
+
+    def _trace(self, event: str, **fields: object) -> None:
+        """Emit low-volume lifecycle diagnostics without changing SDK behavior."""
+        details = " ".join(f"{key}={value}" for key, value in fields.items())
+        suffix = f" {details}" if details else ""
+        print(
+            f"[{time.strftime('%Y-%m-%dT%H:%M:%S%z')}] "
+            f"OpenSDK[{self._trace_label}] {event}{suffix}",
+            flush=True,
+        )
 
     # ---------- 录制主体 ----------
 
     def record(self, seconds: float) -> Path:
         out_path = self.out_dir / f"sdk-{uuid.uuid4().hex}.mp4"
         deadline = time.monotonic() + seconds
+        self._trace("record.begin", seconds=f"{seconds:.1f}", output=out_path.name)
         try:
             self._start_ffmpeg(out_path)
             self._start_sdk()
             while time.monotonic() < deadline:
                 if self._process is None or self._process.poll() is not None:
+                    returncode = self._process.returncode if self._process else None
+                    self._trace("record.ffmpeg_exited", returncode=returncode)
                     raise RuntimeError("ffmpeg exited early")
                 # 流停顿保护：一段时间没有数据则提前结束，保留已录内容
-                if time.monotonic() - self._last_data_monotonic > SDK_STALL_TIMEOUT_SECONDS:
+                idle_seconds = time.monotonic() - self._last_data_monotonic
+                if idle_seconds > SDK_STALL_TIMEOUT_SECONDS:
                     self.stderr_tail = self.stderr_tail + ["sdk stream stalled"]
+                    self._trace("record.stream_stalled", idle_seconds=f"{idle_seconds:.1f}")
                     break
                 time.sleep(0.5)
         finally:
+            self._trace("record.close.begin")
             self.close()
+            self._trace("record.close.end")
         if not out_path.is_file() or out_path.stat().st_size == 0:
             raise RuntimeError(f"OpenSDK recording produced empty file: {out_path}")
+        self._trace("record.end", output_bytes=out_path.stat().st_size)
         return out_path
 
     # ---------- SDK ----------
 
     def _start_sdk(self) -> None:
         library_dir = self._library_dir
+        self._trace("sdk.load.begin", dll=self._library_path.name)
         if hasattr(os, "add_dll_directory"):
             self._dll_dir_handle = os.add_dll_directory(str(library_dir))
         library = ctypes.WinDLL(str(self._library_path))
+        self._trace("sdk.load.end")
 
         message_cb = ctypes.WINFUNCTYPE(
             None, ctypes.c_char_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_char_p, ctypes.c_void_p
@@ -148,6 +172,9 @@ class EzvizOpenSdkRecorder:
         self._library = library
         self._fini = fini
         self._stop_play = stop_play
+        self._set_callback = set_callback
+        self._free_session = free_session
+        self._data_callback_type = data_cb
 
         @message_cb
         def on_message(_session, _message_type, error_code, _message, _user) -> None:
@@ -158,7 +185,13 @@ class EzvizOpenSdkRecorder:
         def on_data(data_type, pointer, length, _user, _session) -> None:
             if int(data_type) not in (1, 2) or not pointer or int(length) <= 0:
                 return
-            self._last_data_monotonic = time.monotonic()
+            now = time.monotonic()
+            self._last_data_monotonic = now
+            self._callback_chunks += 1
+            self._callback_bytes += int(length)
+            if self._first_data_monotonic == 0.0:
+                self._first_data_monotonic = now
+                self._trace("callback.first_packet", data_type=int(data_type), bytes=int(length))
             try:
                 self._chunks.put_nowait(ctypes.string_at(pointer, length))
             except Full:
@@ -169,7 +202,10 @@ class EzvizOpenSdkRecorder:
         self._message_callback = on_message
         self._data_callback = on_data
 
+        started_at = time.monotonic()
+        self._trace("sdk.init.begin")
         result = init(AUTH_URLS[0], AUTH_URLS[1], self.app_key.encode("utf-8"), False)
+        self._trace("sdk.init.end", result=result, elapsed=f"{time.monotonic() - started_at:.3f}")
         if result != 0:
             raise RuntimeError(f"OpenSDK_InitLib failed: {last_error()}")
         self._initialized = True
@@ -178,7 +214,15 @@ class EzvizOpenSdkRecorder:
             raise RuntimeError(f"OpenSDK_SetAccessToken failed: {last_error()}")
         session_ptr = ctypes.c_void_p()
         session_len = ctypes.c_int()
+        started_at = time.monotonic()
+        self._trace("session.create.begin")
         result = alloc(on_message, None, ctypes.byref(session_ptr), ctypes.byref(session_len))
+        self._trace(
+            "session.create.end",
+            result=result,
+            session_bytes=session_len.value,
+            elapsed=f"{time.monotonic() - started_at:.3f}",
+        )
         if result != 0 or not session_ptr.value:
             raise RuntimeError(f"OpenSDK_AllocSessionEx failed: {last_error()}")
         session = ctypes.string_at(session_ptr, session_len.value).rstrip(b"\0")
@@ -186,13 +230,19 @@ class EzvizOpenSdkRecorder:
         if not session:
             raise RuntimeError("OpenSDK allocated an empty session")
         self._session = session
-        if set_callback(session, on_data, None) != 0:
+        self._trace("callback.register.begin")
+        callback_result = set_callback(session, on_data, None)
+        self._trace("callback.register.end", result=callback_result)
+        if callback_result != 0:
             raise RuntimeError(f"OpenSDK_SetDataCallBack failed: {last_error()}")
         set_session_config(session, 2, 1)
+        started_at = time.monotonic()
+        self._trace("play.start.begin", stream_type=self.stream_type)
         result = start_play(
             session, None, self.device_serial.encode("utf-8"), 1,
             self.verify_code.encode("utf-8"), self.stream_type,
         )
+        self._trace("play.start.end", result=result, elapsed=f"{time.monotonic() - started_at:.3f}")
         if result != 0:
             raise RuntimeError(f"OpenSDK_StartPlayWithStreamType failed: {last_error()}")
         self._started = True
@@ -201,6 +251,7 @@ class EzvizOpenSdkRecorder:
     # ---------- ffmpeg 写入 ----------
 
     def _start_ffmpeg(self, out_path: Path) -> None:
+        self._trace("ffmpeg.start.begin", output=out_path.name)
         process = subprocess.Popen(
             [
                 self.ffmpeg, "-y", "-hide_banner", "-loglevel", "warning",
@@ -218,6 +269,7 @@ class EzvizOpenSdkRecorder:
             bufsize=0,
         )
         self._process = process
+        self._trace("ffmpeg.start.end", pid=process.pid)
 
         def write_chunks() -> None:
             assert process.stdin is not None
@@ -249,40 +301,107 @@ class EzvizOpenSdkRecorder:
     # ---------- 清理 ----------
 
     def close(self) -> None:
-        if self._started and self._session and getattr(self, "_stop_play", None) is not None:
+        close_started = time.monotonic()
+        session = self._session
+        self._trace(
+            "close.begin",
+            started=self._started,
+            initialized=self._initialized,
+            has_session=session is not None,
+        )
+        if self._started and session and getattr(self, "_stop_play", None) is not None:
+            started_at = time.monotonic()
+            self._trace("play.stop.begin")
             try:
-                self._stop_play(self._session)
-            except Exception:  # noqa: BLE001
-                pass
+                result = self._stop_play(session)
+                self._trace(
+                    "play.stop.end",
+                    result=result,
+                    elapsed=f"{time.monotonic() - started_at:.3f}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._trace("play.stop.error", error=type(exc).__name__)
         self._started = False
-        self._finish_ffmpeg()
-        if self._session is not None:
+
+        if session is not None:
+            if (
+                getattr(self, "_set_callback", None) is not None
+                and getattr(self, "_data_callback_type", None) is not None
+            ):
+                started_at = time.monotonic()
+                self._trace("callback.unregister.begin")
+                try:
+                    result = self._set_callback(session, self._data_callback_type(), None)
+                    self._trace(
+                        "callback.unregister.end",
+                        result=result,
+                        elapsed=f"{time.monotonic() - started_at:.3f}",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._trace("callback.unregister.error", error=type(exc).__name__)
+
+            if getattr(self, "_free_session", None) is not None:
+                started_at = time.monotonic()
+                self._trace("free_session.begin")
+                try:
+                    result = self._free_session(session)
+                    self._trace(
+                        "free_session.end",
+                        result=result,
+                        elapsed=f"{time.monotonic() - started_at:.3f}",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._trace("free_session.error", error=type(exc).__name__)
             self._session = None
+
         if getattr(self, "_initialized", False) and getattr(self, "_fini", None) is not None:
+            started_at = time.monotonic()
+            self._trace("sdk.fini.begin")
             try:
-                self._fini()
-            except Exception:  # noqa: BLE001
-                pass
+                result = self._fini()
+                self._trace(
+                    "sdk.fini.end",
+                    result=result,
+                    elapsed=f"{time.monotonic() - started_at:.3f}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._trace("sdk.fini.error", error=type(exc).__name__)
             self._initialized = False
+
+        self._trace("ffmpeg.finish.begin")
+        self._finish_ffmpeg()
+        self._trace("ffmpeg.finish.end")
         if self._dll_dir_handle is not None:
             self._dll_dir_handle.close()
             self._dll_dir_handle = None
+        self._trace(
+            "close.end",
+            elapsed=f"{time.monotonic() - close_started:.3f}",
+            callback_chunks=self._callback_chunks,
+            callback_bytes=self._callback_bytes,
+            dropped_chunks=self.dropped_chunks,
+        )
 
     def _finish_ffmpeg(self) -> None:
         if self._writer is not None:
+            self._trace("ffmpeg.writer.stop_signal")
             try:
                 self._chunks.put_nowait(None)
             except Full:
-                pass
+                self._trace("ffmpeg.writer.stop_signal_dropped", queue_size=self._chunks.qsize())
             self._writer.join(timeout=3)
+            self._trace("ffmpeg.writer.joined", alive=self._writer.is_alive())
             self._writer = None
         process = self._process
         if process is not None and process.poll() is None:
             try:
                 process.wait(timeout=15)
+                self._trace("ffmpeg.process.exited", returncode=process.returncode)
             except subprocess.TimeoutExpired:
+                self._trace("ffmpeg.process.kill", reason="wait_timeout")
                 process.kill()
                 process.wait(timeout=5)
+                self._trace("ffmpeg.process.killed", returncode=process.returncode)
         self._process = None
 
     def __enter__(self) -> "EzvizOpenSdkRecorder":

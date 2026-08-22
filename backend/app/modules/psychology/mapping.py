@@ -6,6 +6,7 @@ from math import isfinite
 from app.modules.psychology.schemas import (
     AssessmentState,
     AssessmentWindow,
+    CompletedAssessmentReference,
     DataQuality,
     PsychologyOverview,
     ReviewStatus,
@@ -17,7 +18,11 @@ _GUIDANCE = "结果仅供日常关怀参考，建议结合日常沟通和专业�
 _DISCLAIMER = "该结果仅供日常关怀参考，不构成心理或医疗诊断"
 
 
-def map_psychology_snapshot(snapshot: PsychologySourceSnapshot) -> PsychologyOverview:
+def map_psychology_snapshot(
+    snapshot: PsychologySourceSnapshot,
+    *,
+    latest_completed: PsychologySourceSnapshot | None = None,
+) -> PsychologyOverview:
     window = AssessmentWindow(
         started_at=snapshot.window_started_at,
         ended_at=snapshot.window_ended_at,
@@ -31,6 +36,7 @@ def map_psychology_snapshot(snapshot: PsychologySourceSnapshot) -> PsychologyOve
             window=window,
             summary="正在采集并分析视觉行为资料",
             updated_at=snapshot.completed_at,
+            latest_completed=_completed_reference(latest_completed),
         )
     if snapshot.status == "insufficient_data":
         return _overview(
@@ -101,6 +107,7 @@ def _overview(
     updated_at: datetime | None,
     score: float | None = None,
     segment_scores: list[float] | None = None,
+    latest_completed: CompletedAssessmentReference | None = None,
 ) -> PsychologyOverview:
     return PsychologyOverview(
         source_status=source_status,
@@ -113,5 +120,32 @@ def _overview(
         evidence_summary=summary,
         guidance=_GUIDANCE,
         updated_at=updated_at,
+        disclaimer=_DISCLAIMER,
+        latest_completed=latest_completed,
+    )
+
+
+def _completed_reference(
+    snapshot: PsychologySourceSnapshot | None,
+) -> CompletedAssessmentReference | None:
+    if (
+        snapshot is None
+        or snapshot.status != "completed"
+        or not _valid_completed_result(snapshot)
+    ):
+        return None
+    assert snapshot.estimated_phq8_score is not None
+    assert snapshot.completed_at is not None
+    return CompletedAssessmentReference(
+        assessment_window=AssessmentWindow(
+            started_at=snapshot.window_started_at,
+            ended_at=snapshot.window_ended_at,
+        ),
+        data_quality=DataQuality.LIMITED,
+        review_status=ReviewStatus.REQUIRED,
+        estimated_phq8_score=snapshot.estimated_phq8_score,
+        evidence_summary="上一轮视觉行为资料已完成参考分析",
+        guidance=_GUIDANCE,
+        updated_at=snapshot.completed_at,
         disclaimer=_DISCLAIMER,
     )

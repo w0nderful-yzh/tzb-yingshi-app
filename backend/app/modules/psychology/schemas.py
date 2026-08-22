@@ -37,6 +37,17 @@ class AssessmentWindow(BaseModel):
     ended_at: datetime
 
 
+class CompletedAssessmentReference(BaseModel):
+    assessment_window: AssessmentWindow
+    data_quality: DataQuality
+    review_status: ReviewStatus
+    estimated_phq8_score: float
+    evidence_summary: str
+    guidance: str
+    updated_at: datetime
+    disclaimer: str
+
+
 class PsychologyOverview(BaseModel):
     source_status: SourceStatus
     operating_mode: Literal["shadow"] = "shadow"
@@ -55,3 +66,4 @@ class PsychologyOverview(BaseModel):
     guidance: str
     updated_at: datetime | None = None
     disclaimer: str
+    latest_completed: CompletedAssessmentReference | None = None

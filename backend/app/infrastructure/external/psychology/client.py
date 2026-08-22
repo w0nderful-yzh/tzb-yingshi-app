@@ -17,6 +17,7 @@ class HttpPsychologySource:
         timeout_seconds: float,
         api_key: str | None = None,
         latest_path: str = "/api/psychology/assessments/latest",
+        latest_completed_path: str = "/api/psychology/assessments/latest-completed",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         headers = {"Accept": "application/json"}
@@ -29,11 +30,33 @@ class HttpPsychologySource:
             transport=transport,
         )
         self._latest_path = latest_path
+        self._latest_completed_path = latest_completed_path
 
     async def get_latest_assessment(self, *, subject_key: str) -> PsychologySourceSnapshot:
+        return await self._get_snapshot(path=self._latest_path, subject_key=subject_key)
+
+    async def get_latest_completed_assessment(
+        self,
+        *,
+        subject_key: str,
+    ) -> PsychologySourceSnapshot:
+        snapshot = await self._get_snapshot(
+            path=self._latest_completed_path,
+            subject_key=subject_key,
+        )
+        if snapshot.status != "completed":
+            raise PsychologySourceError("psychology upstream completed payload is not completed")
+        return snapshot
+
+    async def _get_snapshot(
+        self,
+        *,
+        path: str,
+        subject_key: str,
+    ) -> PsychologySourceSnapshot:
         try:
             response = await self._client.get(
-                self._latest_path.lstrip("/"),
+                path.lstrip("/"),
                 params={"subject_key": subject_key},
             )
             response.raise_for_status()

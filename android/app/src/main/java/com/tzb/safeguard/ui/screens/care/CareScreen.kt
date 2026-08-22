@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.tzb.safeguard.ServiceLocator
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
+import com.tzb.safeguard.data.psychology.model.PsychologyCompletedReference
 import com.tzb.safeguard.ui.components.AppCard
 import com.tzb.safeguard.ui.components.UiState
 import com.tzb.safeguard.ui.navigation.appViewModel
@@ -158,7 +159,41 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
         )
     } else {
         Text(overview.evidence_summary, style = MaterialTheme.typography.bodyMedium)
+        if (overview.assessment_state == "collecting") {
+            overview.latest_completed?.let { completed ->
+                Spacer(Modifier.height(14.dp))
+                Text("上一轮辅助评估", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "新一轮资料采集中，以下为上一轮已完成结果",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+                Spacer(Modifier.height(8.dp))
+                PreviousCompletedContent(completed)
+            }
+        }
     }
+}
+
+@Composable
+private fun PreviousCompletedContent(completed: PsychologyCompletedReference) {
+    completed.estimated_phq8_score?.let { score ->
+        Text(
+            "算法辅助评分 ${"%.1f".format(score)} / 24",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    Text(completed.evidence_summary, style = MaterialTheme.typography.bodyMedium)
+    DataRow("数据质量", dataQualityLabel(completed.data_quality))
+    completed.updated_at?.takeIf { it.isNotBlank() }?.let {
+        DataRow("上一轮完成时间", formatAssessmentTime(it))
+    }
+    Text(
+        completed.disclaimer.ifBlank { "算法评分仅用于辅助评估，不构成心理或医疗诊断" },
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+    )
 }
 
 @Composable

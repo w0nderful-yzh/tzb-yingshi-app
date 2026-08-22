@@ -9,6 +9,18 @@ data class PsychologyAssessmentWindow(
 )
 
 @Serializable
+data class PsychologyCompletedReference(
+    val assessment_window: PsychologyAssessmentWindow? = null,
+    val data_quality: String = "limited",
+    val review_status: String = "required",
+    val estimated_phq8_score: Double? = null,
+    val evidence_summary: String = "上一轮参考分析已完成",
+    val guidance: String = "结果仅供日常关怀参考",
+    val updated_at: String? = null,
+    val disclaimer: String = "该结果不构成心理或医疗诊断",
+)
+
+@Serializable
 data class PsychologyOverview(
     val source_status: String = "unavailable",
     val operating_mode: String = "shadow",
@@ -26,5 +38,6 @@ data class PsychologyOverview(
     val guidance: String = "结果仅供日常关怀参考",
     val updated_at: String? = null,
     val disclaimer: String = "该结果不构成心理或医疗诊断",
+    val latest_completed: PsychologyCompletedReference? = null,
 )
 

@@ -26,6 +26,26 @@ class LocalPsychologySource:
     async def get_latest_assessment(self, *, subject_key: str) -> PsychologySourceSnapshot:
         digest = hashlib.sha256(subject_key.encode("utf-8")).hexdigest()
         path = self._store_root / f"{digest}.json"
+        return self._read_snapshot(path=path, subject_key=subject_key)
+
+    async def get_latest_completed_assessment(
+        self,
+        *,
+        subject_key: str,
+    ) -> PsychologySourceSnapshot:
+        digest = hashlib.sha256(subject_key.encode("utf-8")).hexdigest()
+        path = self._store_root / "completed" / f"{digest}.json"
+        snapshot = self._read_snapshot(path=path, subject_key=subject_key)
+        if snapshot.status != "completed":
+            raise PsychologySourceError("latest completed psychology snapshot is not completed")
+        return snapshot
+
+    @staticmethod
+    def _read_snapshot(
+        *,
+        path: Path,
+        subject_key: str,
+    ) -> PsychologySourceSnapshot:
         if not path.is_file():
             raise PsychologySourceError("no psychology assessment for subject")
         try:
