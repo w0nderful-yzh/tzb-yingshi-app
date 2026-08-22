@@ -7,10 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.SurfaceTexture
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -20,10 +17,6 @@ import com.tzb.safeguard.ServiceLocator
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RealtimeRiskEvent
 import com.tzb.safeguard.data.realtime.AlertWebSocketClient
-import com.videogo.errorlayer.ErrorInfo
-import com.videogo.openapi.EZConstants.EZRealPlayConstants
-import com.videogo.openapi.EZOpenSDK
-import com.videogo.openapi.EZPlayer
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -38,7 +31,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.MediaPlayer.PlayM4.Player
 
 data class MonitorServiceStatus(
     val enabled: Boolean = false,
@@ -52,11 +44,8 @@ class Ys7MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var monitorJob: Job? = null
     private var alertJob: Job? = null
-    private var activePlayer: EZPlayer? = null
-    private var activeSdk: EZOpenSDK? = null
+    private var activePlayerLease: Ys7PlayerCoordinator.Lease? = null
     private var activeRelay: CameraAudioRelay? = null
-    private var activeSurface: SurfaceTexture? = null
-    private var activeHandler: Handler? = null
     private var disconnectSignal: CompletableDeferred<String>? = null
 
     override fun onCreate() {
@@ -143,53 +132,41 @@ class Ys7MonitorService : Service() {
 
     private suspend fun runPlayer(session: LiveSdkSession) {
         val application = applicationContext as Application
-        val sdk = Ys7SdkRuntime.configure(application, session)
-        val player = sdk.createPlayer(session.device_serial, session.channel_no)
         val relay = CameraAudioRelay(ServiceLocator.repository, session.device_serial, scope)
-        val surface = SurfaceTexture(0).apply { setDefaultBufferSize(16, 16) }
         val disconnected = CompletableDeferred<String>()
-        val handler = Handler(Looper.getMainLooper()) { message ->
-            when (message.what) {
-                EZRealPlayConstants.MSG_REALPLAY_PLAY_SUCCESS -> {
-                    val audioEngine = Player.getInstance()
-                    audioEngine.setAudioDataCallBack(player.playPort) { _, pcm, size, sampleRate ->
-                        relay.accept(pcm, size, sampleRate)
-                        val now = System.currentTimeMillis()
-                        if (now - lastAudioStatusAt >= 1_000) {
-                            lastAudioStatusAt = now
-                            updateStatus(
-                                status.value.copy(
-                                    mediaConnected = true,
-                                    detail = "摄像头音频监听中",
-                                    lastAudioAt = Instant.ofEpochMilli(now).toString(),
-                                )
-                            )
-                        }
-                    }
-                    player.openSound()
-                    audioEngine.adjustWaveAudio(player.playPort, Player.VOLUME_MUTE)
-                    updateStatus(status.value.copy(mediaConnected = true, detail = "摄像头音频监听中"))
-                }
+        val listener = object : Ys7PlayerCoordinator.Listener {
+            override fun onPlaying() {
+                updateStatus(status.value.copy(mediaConnected = true, detail = "摄像头音频监听中"))
+            }
 
-                EZRealPlayConstants.MSG_REALPLAY_PLAY_FAIL -> {
-                    val info = message.obj as? ErrorInfo
-                    disconnected.complete("萤石播放失败（${info?.errorCode ?: "unknown"}）")
+            override fun onError(errorCode: Int?) {
+                disconnected.complete("萤石播放失败（${errorCode ?: "unknown"}）")
+            }
+        }
+        try {
+            val lease = Ys7PlayerCoordinator.acquire(application, session, listener)
+            lease.setAudioConsumer { pcm, size, sampleRate ->
+                relay.accept(pcm, size, sampleRate)
+                val now = System.currentTimeMillis()
+                if (now - lastAudioStatusAt >= 1_000) {
+                    lastAudioStatusAt = now
+                    updateStatus(
+                        status.value.copy(
+                            mediaConnected = true,
+                            detail = "摄像头音频监听中",
+                            lastAudioAt = Instant.ofEpochMilli(now).toString(),
+                        )
+                    )
                 }
             }
-            true
+            activePlayerLease = lease
+            activeRelay = relay
+            disconnectSignal = disconnected
+            disconnected.await().let { error(it) }
+        } catch (error: Throwable) {
+            relay.close()
+            throw error
         }
-        activeSdk = sdk
-        activePlayer = player
-        activeRelay = relay
-        activeSurface = surface
-        activeHandler = handler
-        disconnectSignal = disconnected
-        player.setSurfaceEx(surface)
-        player.setHandler(handler)
-        player.setHardDecode(false)
-        player.closeSound()
-        check(player.startRealPlay()) { "萤石直播启动失败" }
-        disconnected.await().let { error(it) }
     }
 
     private suspend fun alertLoop() {
@@ -221,19 +198,11 @@ class Ys7MonitorService : Service() {
     private fun stopPlayer() {
         disconnectSignal?.cancel()
         disconnectSignal = null
-        activePlayer?.let { player ->
-            runCatching { Player.getInstance().setAudioDataCallBack(player.playPort, null) }
-            runCatching { player.stopRealPlay() }
-            activeSdk?.releasePlayer(player)
-        }
-        activeHandler?.removeCallbacksAndMessages(null)
+        activePlayerLease?.setAudioConsumer(null)
+        activePlayerLease?.close()
         activeRelay?.close()
-        activeSurface?.release()
-        activePlayer = null
-        activeSdk = null
-        activeHandler = null
+        activePlayerLease = null
         activeRelay = null
-        activeSurface = null
     }
 
     private fun updateStatus(next: MonitorServiceStatus) {

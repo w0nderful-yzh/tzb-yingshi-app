@@ -1,8 +1,6 @@
 package com.tzb.safeguard.ui.screens.monitor
 
 import android.app.Application
-import android.os.Handler
-import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
@@ -39,14 +37,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.tzb.safeguard.data.media.Ys7SdkRuntime
+import com.tzb.safeguard.data.media.Ys7PlayerCoordinator
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.ui.theme.WarnRed
-import com.videogo.errorlayer.ErrorInfo
 import com.videogo.exception.ErrorCode
-import com.videogo.openapi.EZConstants.EZRealPlayConstants
-import com.videogo.openapi.EZPlayer
-import org.MediaPlayer.PlayM4.Player
 
 @Composable
 fun LiveVideoPlayer(
@@ -60,6 +54,7 @@ fun LiveVideoPlayer(
     var playerError by remember(liveSession) { mutableStateOf<String?>(null) }
     var muted by remember { mutableStateOf(true) }
     var playing by remember(liveSession) { mutableStateOf(false) }
+    var retryGeneration by remember(liveSession) { mutableStateOf(0) }
 
     Box(modifier = modifier.background(Color(0xFF101318), RoundedCornerShape(14.dp))) {
         if (liveSession != null) {
@@ -74,6 +69,7 @@ fun LiveVideoPlayer(
                     playing = false
                     playerError = it
                 },
+                retryGeneration = retryGeneration,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -130,7 +126,10 @@ fun LiveVideoPlayer(
                         color = Color(0xFFD1D5DB),
                         fontSize = 14.sp,
                     )
-                    IconButton(onClick = onRetry) {
+                    IconButton(onClick = {
+                        retryGeneration += 1
+                        onRetry()
+                    }) {
                         Icon(
                             Icons.Filled.Refresh,
                             contentDescription = "刷新直播",
@@ -149,29 +148,18 @@ private fun Ys7SurfacePlayer(
     muted: Boolean,
     onPlaying: () -> Unit,
     onError: (String) -> Unit,
+    retryGeneration: Int,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val application = context.applicationContext as Application
-    val playerResult = remember(session) {
-        runCatching {
-            Ys7SdkRuntime.configure(application, session).let { sdk ->
-                sdk to sdk.createPlayer(session.device_serial, session.channel_no)
-            }
-        }
-    }
-    val pair = playerResult.getOrNull()
-
-    LaunchedEffect(playerResult) {
-        playerResult.exceptionOrNull()?.let {
-            onError(it.message ?: "萤石直播组件初始化失败")
-        }
-    }
-    if (pair == null) return
-
-    val (sdk, player) = pair
     val currentMuted by rememberUpdatedState(muted)
+    val currentOnPlaying by rememberUpdatedState(onPlaying)
+    val currentOnError by rememberUpdatedState(onError)
+    var activeLease by remember(session, retryGeneration) {
+        mutableStateOf<Ys7PlayerCoordinator.Lease?>(null)
+    }
     val surfaceView = remember(session) {
         SurfaceView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -181,62 +169,45 @@ private fun Ys7SurfacePlayer(
             keepScreenOn = true
         }
     }
-    val handler = remember(session) {
-        Handler(Looper.getMainLooper()) { message ->
-            when (message.what) {
-                EZRealPlayConstants.MSG_REALPLAY_PLAY_SUCCESS -> {
-                    val audioEngine = Player.getInstance()
-                    player.openSound()
-                    audioEngine.adjustWaveAudio(
-                        player.playPort,
-                        if (currentMuted) Player.VOLUME_MUTE else Player.VOLUME_DEFAULT,
-                    )
-                    onPlaying()
+    LaunchedEffect(activeLease, muted) {
+        activeLease?.setMuted(muted)
+    }
+
+    DisposableEffect(session, retryGeneration, surfaceView, lifecycleOwner) {
+        val listener = object : Ys7PlayerCoordinator.Listener {
+            override fun onPlaying() = currentOnPlaying()
+
+            override fun onError(errorCode: Int?) {
+                val text = when (errorCode) {
+                    ErrorCode.ERROR_INNER_VERIFYCODE_NEED,
+                    ErrorCode.ERROR_INNER_VERIFYCODE_ERROR ->
+                        "设备已启用视频加密，请配置设备验证码"
+                    null -> "萤石直播播放失败，请刷新重试"
+                    else -> "萤石直播播放失败（错误码 $errorCode）"
                 }
-                EZRealPlayConstants.MSG_REALPLAY_PLAY_FAIL -> {
-                    val errorInfo = message.obj as? ErrorInfo
-                    val errorCode = errorInfo?.errorCode
-                    val text = when (errorCode) {
-                        ErrorCode.ERROR_INNER_VERIFYCODE_NEED,
-                        ErrorCode.ERROR_INNER_VERIFYCODE_ERROR ->
-                            "设备已启用视频加密，请配置设备验证码"
-                        null -> "萤石直播播放失败，请刷新重试"
-                        else -> "萤石直播播放失败（错误码 $errorCode）"
-                    }
-                    onError(text)
-                }
+                currentOnError(text)
             }
-            true
         }
-    }
-
-    LaunchedEffect(player, muted) {
-        player.openSound()
-        if (player.playPort >= 0) {
-            Player.getInstance().adjustWaveAudio(
-                player.playPort,
-                if (muted) Player.VOLUME_MUTE else Player.VOLUME_DEFAULT,
-            )
-        }
-    }
-
-    DisposableEffect(player, surfaceView, lifecycleOwner) {
-        var started = false
 
         fun start(holder: SurfaceHolder) {
-            if (started || !holder.surface.isValid) return
-            player.setSurfaceHold(holder)
-            player.setHandler(handler)
-            player.setHardDecode(true)
-            player.closeSound()
-            started = player.startRealPlay()
-            if (!started) onError("萤石直播启动失败，请刷新重试")
+            if (activeLease != null || !holder.surface.isValid) return
+            runCatching {
+                Ys7PlayerCoordinator.acquire(application, session, listener).also { lease ->
+                    lease.setMuted(currentMuted)
+                    lease.attachSurface(holder)
+                    activeLease = lease
+                }
+            }.onFailure {
+                currentOnError(it.message ?: "萤石直播组件初始化失败")
+            }
         }
 
-        fun stop() {
-            if (!started) return
-            player.stopRealPlay()
-            started = false
+        fun stop(holder: SurfaceHolder? = null) {
+            activeLease?.let { lease ->
+                if (holder != null) lease.detachSurface(holder)
+                lease.close()
+            }
+            activeLease = null
         }
 
         val surfaceCallback = object : SurfaceHolder.Callback {
@@ -254,14 +225,13 @@ private fun Ys7SurfacePlayer(
             ) = Unit
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                stop()
-                player.setSurfaceHold(null)
+                stop(holder)
             }
         }
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> start(surfaceView.holder)
-                Lifecycle.Event.ON_STOP -> stop()
+                Lifecycle.Event.ON_STOP -> stop(surfaceView.holder)
                 else -> Unit
             }
         }
@@ -275,10 +245,7 @@ private fun Ys7SurfacePlayer(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
             surfaceView.holder.removeCallback(surfaceCallback)
-            stop()
-            player.setSurfaceHold(null)
-            handler.removeCallbacksAndMessages(null)
-            sdk.releasePlayer(player)
+            stop(surfaceView.holder)
         }
     }
 
