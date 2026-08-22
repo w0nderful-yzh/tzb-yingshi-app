@@ -128,11 +128,7 @@ def _overview(
 def _completed_reference(
     snapshot: PsychologySourceSnapshot | None,
 ) -> CompletedAssessmentReference | None:
-    if (
-        snapshot is None
-        or snapshot.status != "completed"
-        or not _valid_completed_result(snapshot)
-    ):
+    if snapshot is None or snapshot.status != "completed" or not _valid_completed_result(snapshot):
         return None
     assert snapshot.estimated_phq8_score is not None
     assert snapshot.completed_at is not None
