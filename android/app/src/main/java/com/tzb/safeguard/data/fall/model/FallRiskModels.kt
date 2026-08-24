@@ -6,7 +6,16 @@ import kotlinx.serialization.Serializable
 data class FallRiskOverview(
     val overall_risk_level: String = "unknown",
     val rooms: List<RoomFallRisk> = emptyList(),
+    val camera_monitoring: CameraMonitoringStatus = CameraMonitoringStatus(),
     val generated_at: String = "",
+)
+
+@Serializable
+data class CameraMonitoringStatus(
+    val camera_stream_status: String = "unavailable",
+    val camera_algorithm_status: String = "unavailable",
+    val detail: String = "摄像头跌倒预测服务未配置",
+    val updated_at: String = "",
 )
 
 @Serializable

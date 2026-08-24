@@ -2,7 +2,11 @@
 
 from typing import Protocol
 
-from app.modules.fall.source_schemas import CameraLedSourceSnapshot, RadarOnlySourceSnapshot
+from app.modules.fall.source_schemas import (
+    CameraLedSourceSnapshot,
+    CameraMonitoringSourceStatus,
+    RadarOnlySourceSnapshot,
+)
 
 
 class FallRiskSourceError(RuntimeError):
@@ -23,3 +27,11 @@ class FallRiskSource(Protocol):
         elder_id: str,
         room_id: str,
     ) -> RadarOnlySourceSnapshot: ...
+
+
+class CameraMonitoringControl(Protocol):
+    async def start_camera_monitoring(self) -> CameraMonitoringSourceStatus: ...
+
+    async def stop_camera_monitoring(self) -> CameraMonitoringSourceStatus: ...
+
+    async def get_camera_monitoring_status(self) -> CameraMonitoringSourceStatus: ...

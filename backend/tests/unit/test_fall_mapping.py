@@ -1,6 +1,12 @@
-from app.modules.fall.mapping import map_camera_led_snapshot, map_radar_only_snapshot
+from app.modules.fall.mapping import (
+    map_camera_led_snapshot,
+    map_camera_monitoring_status,
+    map_radar_only_snapshot,
+)
 from app.modules.fall.schemas import (
     AssociationStatus,
+    CameraAlgorithmStatus,
+    CameraStreamStatus,
     DecisionPath,
     JointAssessment,
     PredictionState,
@@ -9,9 +15,32 @@ from app.modules.fall.schemas import (
 )
 from app.modules.fall.source_schemas import (
     CameraLedSourceSnapshot,
+    CameraMonitoringSourceStatus,
     RadarCalibratedTcnPredictionSource,
     RadarTcnPredictionSource,
 )
+
+
+def test_camera_monitoring_status_separates_stream_and_algorithm_state() -> None:
+    waiting = CameraMonitoringSourceStatus.model_validate(
+        {
+            "enabled": True,
+            "state": "RUNNING",
+            "input_state": "WAITING",
+            "input_message": "正在等待首个有效姿态窗口",
+            "checked_at": "2026-08-23T10:00:00+08:00",
+        }
+    )
+    ready = waiting.model_copy(
+        update={"input_state": "READY", "input_message": "摄像头跌倒预测运行中"}
+    )
+
+    waiting_result = map_camera_monitoring_status(waiting)
+    ready_result = map_camera_monitoring_status(ready)
+
+    assert waiting_result.camera_stream_status is CameraStreamStatus.STREAMING
+    assert waiting_result.camera_algorithm_status is CameraAlgorithmStatus.WAITING_DATA
+    assert ready_result.camera_algorithm_status is CameraAlgorithmStatus.RUNNING
 
 
 def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -> dict:

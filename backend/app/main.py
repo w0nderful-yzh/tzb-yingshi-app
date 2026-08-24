@@ -98,7 +98,10 @@ def create_app(
         else:
             # 默认：读取雷达 worker 快照（本地模式，无 :8010/:8011 依赖）。
             runtime_fall_source = LocalRadarSource()
-    fall_risk_service = FallRiskService(runtime_fall_source)
+    fall_risk_service = FallRiskService(
+        runtime_fall_source,
+        camera_control=fall_source_client,
+    )
     psychology_source_client: HttpPsychologySource | None = None
     runtime_psychology_source = psychology_source
     if runtime_psychology_source is None and runtime_settings.psychology_enabled:

@@ -2,6 +2,9 @@
 
 from app.modules.fall.schemas import (
     AssociationStatus,
+    CameraAlgorithmStatus,
+    CameraMonitoringStatus,
+    CameraStreamStatus,
     DecisionPath,
     FallEventStatus,
     JointAssessment,
@@ -13,6 +16,7 @@ from app.modules.fall.schemas import (
 from app.modules.fall.source_schemas import (
     AssociatedEvidenceState,
     CameraLedSourceSnapshot,
+    CameraMonitoringSourceStatus,
     CameraRiskState,
     QualityLevel,
     RadarCalibratedTcnPredictionSource,
@@ -28,6 +32,38 @@ _ASSOCIATED_EVIDENCE_STATES: set[AssociatedEvidenceState] = {
     "RADAR_MOTION_ANOMALY",
     "MODALITY_CONFLICT",
 }
+
+
+def map_camera_monitoring_status(
+    snapshot: CameraMonitoringSourceStatus,
+) -> CameraMonitoringStatus:
+    if not snapshot.enabled or snapshot.state == "DISABLED":
+        stream = CameraStreamStatus.UNAVAILABLE
+        algorithm = CameraAlgorithmStatus.UNAVAILABLE
+    elif snapshot.state == "STOPPED":
+        stream = CameraStreamStatus.STOPPED
+        algorithm = CameraAlgorithmStatus.STOPPED
+    elif snapshot.state == "ERROR":
+        stream = CameraStreamStatus.ERROR
+        algorithm = CameraAlgorithmStatus.ERROR
+    elif snapshot.state in {"STARTING", "LOADING_MODELS"}:
+        stream = CameraStreamStatus.CONNECTING
+        algorithm = CameraAlgorithmStatus.STARTING
+    elif snapshot.state == "CONNECTING":
+        stream = CameraStreamStatus.RECONNECTING
+        algorithm = CameraAlgorithmStatus.WAITING_DATA
+    elif snapshot.input_state == "WAITING":
+        stream = CameraStreamStatus.STREAMING
+        algorithm = CameraAlgorithmStatus.WAITING_DATA
+    else:
+        stream = CameraStreamStatus.STREAMING
+        algorithm = CameraAlgorithmStatus.RUNNING
+    return CameraMonitoringStatus(
+        camera_stream_status=stream,
+        camera_algorithm_status=algorithm,
+        detail=snapshot.error or snapshot.input_message,
+        updated_at=snapshot.checked_at,
+    )
 
 
 def map_camera_led_snapshot(

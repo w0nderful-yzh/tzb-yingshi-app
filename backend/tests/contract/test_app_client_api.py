@@ -29,6 +29,9 @@ def test_app_phase_one_routes_are_exposed() -> None:
         "/api/v1/stats/events",
         "/api/v1/stats/activity",
         "/api/v1/fall-risk/overview",
+        "/api/v1/fall-risk/camera-monitoring/start",
+        "/api/v1/fall-risk/camera-monitoring/stop",
+        "/api/v1/fall-risk/camera-monitoring/status",
         "/api/v1/psychology/overview",
     } <= set(paths)
 
@@ -44,6 +47,9 @@ def test_app_business_routes_require_bearer_authentication() -> None:
     assert schema["paths"]["/api/v1/auth/login"]["post"].get("security") is None
     assert schema["paths"]["/api/v1/users/me"]["get"]["security"] == [{"HTTPBearer": []}]
     assert schema["paths"]["/api/v1/fall-risk/overview"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/api/v1/fall-risk/camera-monitoring/start"]["post"]["security"] == [
+        {"HTTPBearer": []}
+    ]
     assert schema["paths"]["/api/v1/psychology/overview"]["get"]["security"] == [{"HTTPBearer": []}]
     assert schema["paths"]["/api/v1/ws/tickets"]["post"]["security"] == [{"HTTPBearer": []}]
     parameters = schema["paths"]["/api/v1/users/me"]["get"].get("parameters", [])
@@ -59,6 +65,8 @@ def test_app_mutations_require_idempotency_key() -> None:
         ("/api/v1/events/{event_id}/confirm", "post"),
         ("/api/v1/events/{event_id}/status", "patch"),
         ("/api/v1/events/{event_id}/intervention-reminder", "post"),
+        ("/api/v1/fall-risk/camera-monitoring/start", "post"),
+        ("/api/v1/fall-risk/camera-monitoring/stop", "post"),
     ):
         parameters = paths[path][method]["parameters"]
         idempotency = next(item for item in parameters if item["name"] == "Idempotency-Key")

@@ -40,6 +40,23 @@ AssociatedEvidenceState = Literal[
     "RADAR_MOTION_ANOMALY",
     "MODALITY_CONFLICT",
 ]
+FallLiveState = Literal[
+    "DISABLED",
+    "STARTING",
+    "LOADING_MODELS",
+    "CONNECTING",
+    "RUNNING",
+    "ERROR",
+    "STOPPED",
+]
+FallLiveInputState = Literal[
+    "WAITING",
+    "NO_PERSON",
+    "LOW_CONFIDENCE",
+    "INSUFFICIENT_DENSITY",
+    "INSUFFICIENT_POSE",
+    "READY",
+]
 
 
 class AlgorithmSourceModel(BaseModel):
@@ -94,6 +111,15 @@ class CameraLedSourceSnapshot(AlgorithmSourceModel):
     associated_risk_augmentation: AssociatedRiskAugmentation | None = None
     fall_event: AlgorithmFallEvent
     timestamp: datetime
+
+
+class CameraMonitoringSourceStatus(AlgorithmSourceModel):
+    enabled: bool
+    state: FallLiveState
+    input_state: FallLiveInputState = "WAITING"
+    input_message: str = "等待摄像头输入"
+    error: str | None = None
+    checked_at: datetime
 
 
 class RadarTcnPredictionSource(AlgorithmSourceModel):

@@ -4,6 +4,7 @@ from app.modules.fall.schemas import DecisionPath, RiskLevel
 from app.modules.fall.service import FallRiskService
 from app.modules.fall.source_schemas import (
     CameraLedSourceSnapshot,
+    CameraMonitoringSourceStatus,
     RadarOnlySourceSnapshot,
     RadarTcnPredictionSource,
 )
@@ -83,6 +84,27 @@ class FakeFallRiskSource:
             }
         )
 
+    async def start_camera_monitoring(self) -> CameraMonitoringSourceStatus:
+        return self._camera_status("STARTING", "WAITING")
+
+    async def stop_camera_monitoring(self) -> CameraMonitoringSourceStatus:
+        return self._camera_status("STOPPED", "WAITING")
+
+    async def get_camera_monitoring_status(self) -> CameraMonitoringSourceStatus:
+        return self._camera_status("RUNNING", "READY")
+
+    @staticmethod
+    def _camera_status(state: str, input_state: str) -> CameraMonitoringSourceStatus:
+        return CameraMonitoringSourceStatus.model_validate(
+            {
+                "enabled": True,
+                "state": state,
+                "input_state": input_state,
+                "input_message": "摄像头跌倒预测运行中",
+                "checked_at": "2026-08-23T10:00:00+08:00",
+            }
+        )
+
 
 @pytest.mark.asyncio
 async def test_service_routes_rooms_by_formal_capability() -> None:
@@ -97,6 +119,7 @@ async def test_service_routes_rooms_by_formal_capability() -> None:
         DecisionPath.RADAR_ONLY,
     ]
     assert result.overall_risk_level is RiskLevel.MEDIUM
+    assert result.camera_monitoring.camera_algorithm_status.value == "unavailable"
 
 
 @pytest.mark.asyncio
@@ -106,3 +129,17 @@ async def test_service_returns_explicit_unavailable_contract_without_source() ->
     assert all(room.decision_path is DecisionPath.UNAVAILABLE for room in result.rooms)
     assert result.rooms[1].camera_status.value == "not_applicable"
     assert result.overall_risk_level is RiskLevel.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_service_controls_camera_worker_without_changing_room_routing() -> None:
+    source = FakeFallRiskSource()
+    service = FallRiskService(source, camera_control=source)
+
+    started = await service.start_camera_monitoring()
+    running = await service.get_camera_monitoring_status()
+    stopped = await service.stop_camera_monitoring()
+
+    assert started.camera_algorithm_status.value == "starting"
+    assert running.camera_algorithm_status.value == "running"
+    assert stopped.camera_algorithm_status.value == "stopped"

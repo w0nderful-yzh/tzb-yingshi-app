@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from app.modules.fall.ports import FallRiskSourceError
 from app.modules.fall.source_schemas import (
     CameraLedSourceSnapshot,
+    CameraMonitoringSourceStatus,
     RadarLatestResponse,
     RadarOnlySourceSnapshot,
 )
@@ -24,6 +25,9 @@ class HttpFallRiskSource:
         api_key: str | None = None,
         camera_led_path: str = "/api/multimodal/camera-led-associated/latest",
         radar_only_path: str = "/api/radar/latest",
+        camera_start_path: str = "/api/fall-live/start",
+        camera_stop_path: str = "/api/fall-live/stop",
+        camera_status_path: str = "/api/fall-live/status",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         headers = {"Accept": "application/json"}
@@ -51,6 +55,18 @@ class HttpFallRiskSource:
         }
         self._camera_led_path = camera_led_path
         self._radar_only_path = radar_only_path
+        self._camera_start_path = camera_start_path
+        self._camera_stop_path = camera_stop_path
+        self._camera_status_path = camera_status_path
+
+    async def start_camera_monitoring(self) -> CameraMonitoringSourceStatus:
+        return await self._camera_control(self._camera_start_path, method="POST")
+
+    async def stop_camera_monitoring(self) -> CameraMonitoringSourceStatus:
+        return await self._camera_control(self._camera_stop_path, method="POST")
+
+    async def get_camera_monitoring_status(self) -> CameraMonitoringSourceStatus:
+        return await self._camera_control(self._camera_status_path, method="GET")
 
     async def get_camera_led_risk(
         self,
@@ -61,7 +77,7 @@ class HttpFallRiskSource:
         del elder_id  # The real prototype endpoint has no elder query parameter.
         if self._camera_client is None:
             raise FallRiskSourceError("camera-led fall-risk upstream is not configured")
-        payload = await self._get(
+        payload = await self._request(
             self._camera_client,
             self._camera_led_path,
         )
@@ -80,7 +96,7 @@ class HttpFallRiskSource:
         client = self._radar_clients.get(room_id)
         if client is None:
             raise FallRiskSourceError("radar-only fall-risk upstream is not configured for room")
-        payload = await self._get(client, self._radar_only_path)
+        payload = await self._request(client, self._radar_only_path)
         envelope = self._validate(RadarLatestResponse, payload)
         snapshot = (
             envelope.calibrated_tcn_prediction or envelope.tcn_prediction or envelope.tcn_baseline
@@ -97,15 +113,27 @@ class HttpFallRiskSource:
         for client in clients:
             await client.aclose()
 
+    async def _camera_control(
+        self,
+        path: str,
+        *,
+        method: str,
+    ) -> CameraMonitoringSourceStatus:
+        if self._camera_client is None:
+            raise FallRiskSourceError("camera fall-risk upstream is not configured")
+        payload = await self._request(self._camera_client, path, method=method)
+        return self._validate(CameraMonitoringSourceStatus, payload)
+
     @staticmethod
-    async def _get(
+    async def _request(
         client: httpx.AsyncClient,
         path: str,
         *,
+        method: str = "GET",
         params: Mapping[str, str] | None = None,
     ) -> Mapping[str, Any]:
         try:
-            response = await client.get(path.lstrip("/"), params=params)
+            response = await client.request(method, path.lstrip("/"), params=params)
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:

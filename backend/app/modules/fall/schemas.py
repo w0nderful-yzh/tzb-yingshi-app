@@ -66,6 +66,31 @@ class JointAssessment(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class CameraStreamStatus(StrEnum):
+    CONNECTING = "connecting"
+    STREAMING = "streaming"
+    RECONNECTING = "reconnecting"
+    STOPPED = "stopped"
+    ERROR = "error"
+    UNAVAILABLE = "unavailable"
+
+
+class CameraAlgorithmStatus(StrEnum):
+    STARTING = "starting"
+    RUNNING = "running"
+    WAITING_DATA = "waiting_data"
+    STOPPED = "stopped"
+    ERROR = "error"
+    UNAVAILABLE = "unavailable"
+
+
+class CameraMonitoringStatus(BaseModel):
+    camera_stream_status: CameraStreamStatus
+    camera_algorithm_status: CameraAlgorithmStatus
+    detail: str
+    updated_at: datetime
+
+
 class RoomFallRisk(BaseModel):
     room_id: str
     room_name: str
@@ -85,4 +110,5 @@ class RoomFallRisk(BaseModel):
 class FallRiskOverview(BaseModel):
     overall_risk_level: RiskLevel
     rooms: list[RoomFallRisk]
+    camera_monitoring: CameraMonitoringStatus
     generated_at: datetime

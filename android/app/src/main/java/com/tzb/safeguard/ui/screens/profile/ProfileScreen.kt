@@ -174,10 +174,16 @@ private fun MonitorServiceCard(
         if (status.enabled) {
             Spacer(Modifier.height(10.dp))
             CapabilityRow(
-                "摄像头音频",
-                if (status.mediaConnected) "监听中" else "连接中",
-                if (status.mediaConnected) SafeGreen else WarnAmber,
+                "摄像头视频流",
+                cameraStreamStatusLabel(status.cameraStreamStatus),
+                capabilityStatusColor(status.cameraStreamStatus),
             )
+            CapabilityRow(
+                "Camera跌倒预测",
+                cameraAlgorithmStatusLabel(status.cameraAlgorithmStatus),
+                capabilityStatusColor(status.cameraAlgorithmStatus),
+            )
+            Text(status.cameraAlgorithmDetail, style = MaterialTheme.typography.bodySmall)
             CapabilityRow(
                 "实时告警",
                 if (status.alertsConnected) "已连接" else "重连中",
@@ -185,6 +191,31 @@ private fun MonitorServiceCard(
             )
         }
     }
+}
+
+private fun cameraStreamStatusLabel(status: String): String = when (status) {
+    "streaming" -> "直播中"
+    "connecting" -> "连接中"
+    "reconnecting" -> "重连中"
+    "error" -> "连接失败"
+    "stopped" -> "已停止"
+    else -> "不可用"
+}
+
+private fun cameraAlgorithmStatusLabel(status: String): String = when (status) {
+    "running" -> "运行中"
+    "starting" -> "启动中"
+    "waiting_data" -> "等待视频数据"
+    "stopping" -> "停止中"
+    "error" -> "运行错误"
+    "stopped" -> "已停止"
+    else -> "不可用"
+}
+
+private fun capabilityStatusColor(status: String) = when (status) {
+    "streaming", "running" -> SafeGreen
+    "connecting", "reconnecting", "starting", "waiting_data", "stopping" -> WarnAmber
+    else -> TextSecondary
 }
 
 @Composable

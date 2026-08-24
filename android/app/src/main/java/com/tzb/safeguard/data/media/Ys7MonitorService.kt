@@ -14,6 +14,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.tzb.safeguard.MainActivity
 import com.tzb.safeguard.ServiceLocator
+import com.tzb.safeguard.data.fall.model.CameraMonitoringStatus
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RealtimeRiskEvent
 import com.tzb.safeguard.data.realtime.AlertWebSocketClient
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +38,9 @@ data class MonitorServiceStatus(
     val enabled: Boolean = false,
     val mediaConnected: Boolean = false,
     val alertsConnected: Boolean = false,
+    val cameraStreamStatus: String = "stopped",
+    val cameraAlgorithmStatus: String = "stopped",
+    val cameraAlgorithmDetail: String = "摄像头跌倒预测未启动",
     val detail: String = "持续守护未开启",
     val lastAudioAt: String? = null,
 )
@@ -44,23 +49,25 @@ class Ys7MonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var monitorJob: Job? = null
     private var alertJob: Job? = null
+    private var algorithmJob: Job? = null
     private var activePlayerLease: Ys7PlayerCoordinator.Lease? = null
     private var activeRelay: CameraAudioRelay? = null
     private var disconnectSignal: CompletableDeferred<String>? = null
+    private var stopping = false
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
         scope.launch {
             ServiceLocator.authStore.accessToken.collect { token ->
-                if (token == null && status.value.enabled) stopMonitoring(clearPreference = true)
+                if (token == null && status.value.enabled) requestStop(clearPreference = true)
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopMonitoring(clearPreference = true)
+            requestStop(clearPreference = true)
             return START_NOT_STICKY
         }
         startMonitoring()
@@ -70,6 +77,9 @@ class Ys7MonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        monitorJob?.cancel()
+        alertJob?.cancel()
+        algorithmJob?.cancel()
         stopPlayer()
         scope.cancel()
         _status.value = MonitorServiceStatus()
@@ -77,8 +87,17 @@ class Ys7MonitorService : Service() {
     }
 
     private fun startMonitoring() {
+        stopping = false
         preferences().edit().putBoolean(KEY_ENABLED, true).apply()
-        updateStatus(status.value.copy(enabled = true, detail = "正在连接摄像头与告警通道"))
+        updateStatus(
+            status.value.copy(
+                enabled = true,
+                cameraStreamStatus = "connecting",
+                cameraAlgorithmStatus = "starting",
+                cameraAlgorithmDetail = "正在启动摄像头跌倒预测",
+                detail = "正在连接摄像头、算法与告警通道",
+            )
+        )
         ServiceCompat.startForeground(
             this,
             MONITOR_NOTIFICATION_ID,
@@ -87,25 +106,65 @@ class Ys7MonitorService : Service() {
         )
         if (monitorJob?.isActive != true) monitorJob = scope.launch { monitorLoop() }
         if (alertJob?.isActive != true) alertJob = scope.launch { alertLoop() }
+        if (algorithmJob?.isActive != true) algorithmJob = scope.launch { algorithmLoop() }
     }
 
-    private fun stopMonitoring(clearPreference: Boolean) {
+    private fun requestStop(clearPreference: Boolean) {
+        if (stopping) return
+        stopping = true
+        scope.launch { stopMonitoring(clearPreference) }
+    }
+
+    private suspend fun stopMonitoring(clearPreference: Boolean) {
         if (clearPreference) preferences().edit().putBoolean(KEY_ENABLED, false).apply()
         monitorJob?.cancel()
         alertJob?.cancel()
+        algorithmJob?.cancelAndJoin()
         monitorJob = null
         alertJob = null
+        algorithmJob = null
         stopPlayer()
-        _status.value = MonitorServiceStatus()
+        updateStatus(
+            status.value.copy(
+                enabled = false,
+                mediaConnected = false,
+                alertsConnected = false,
+                cameraStreamStatus = "stopped",
+                cameraAlgorithmStatus = "stopping",
+                detail = "正在停止摄像头与跌倒预测",
+            )
+        )
+        val stopped = ServiceLocator.fallRiskRepository.stopCameraMonitoring()
+        _status.value = stopped.fold(
+            onSuccess = {
+                MonitorServiceStatus(
+                    cameraAlgorithmStatus = it.camera_algorithm_status,
+                    cameraAlgorithmDetail = it.detail,
+                )
+            },
+            onFailure = {
+                MonitorServiceStatus(
+                    cameraAlgorithmStatus = "unavailable",
+                    cameraAlgorithmDetail = it.message ?: "摄像头跌倒预测停止请求失败",
+                )
+            },
+        )
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        stopping = false
     }
 
     private suspend fun monitorLoop() {
         var retryDelay = 1_000L
         while (currentCoroutineContext().isActive) {
             try {
-                updateStatus(status.value.copy(mediaConnected = false, detail = "正在连接萤石摄像头"))
+                updateStatus(
+                    status.value.copy(
+                        mediaConnected = false,
+                        cameraStreamStatus = "connecting",
+                        detail = "正在连接萤石摄像头",
+                    )
+                )
                 val elderId = ServiceLocator.repository.getCurrentElderId().getOrThrow()
                 val devices = ServiceLocator.repository.getDevices(elderId).getOrThrow().devices
                 val device = devices.firstOrNull { it.online } ?: devices.firstOrNull()
@@ -121,6 +180,7 @@ class Ys7MonitorService : Service() {
                 updateStatus(
                     status.value.copy(
                         mediaConnected = false,
+                        cameraStreamStatus = "reconnecting",
                         detail = "摄像头断线，${retryDelay / 1_000} 秒后重连：${error.message}",
                     )
                 )
@@ -136,7 +196,13 @@ class Ys7MonitorService : Service() {
         val disconnected = CompletableDeferred<String>()
         val listener = object : Ys7PlayerCoordinator.Listener {
             override fun onPlaying() {
-                updateStatus(status.value.copy(mediaConnected = true, detail = "摄像头音频监听中"))
+                updateStatus(
+                    status.value.copy(
+                        mediaConnected = true,
+                        cameraStreamStatus = "streaming",
+                        detail = "摄像头直播与音频监听中",
+                    )
+                )
             }
 
             override fun onError(errorCode: Int?) {
@@ -153,6 +219,7 @@ class Ys7MonitorService : Service() {
                     updateStatus(
                         status.value.copy(
                             mediaConnected = true,
+                            cameraStreamStatus = "streaming",
                             detail = "摄像头音频监听中",
                             lastAudioAt = Instant.ofEpochMilli(now).toString(),
                         )
@@ -167,6 +234,60 @@ class Ys7MonitorService : Service() {
             relay.close()
             throw error
         }
+    }
+
+    private suspend fun algorithmLoop() {
+        var retryDelay = 1_000L
+        while (currentCoroutineContext().isActive) {
+            try {
+                updateStatus(
+                    status.value.copy(
+                        cameraAlgorithmStatus = "starting",
+                        cameraAlgorithmDetail = "正在启动摄像头跌倒预测",
+                    )
+                )
+                val started = ServiceLocator.fallRiskRepository
+                    .startCameraMonitoring()
+                    .getOrThrow()
+                updateAlgorithmStatus(started)
+                check(started.camera_algorithm_status !in setOf("unavailable", "error", "stopped")) {
+                    started.detail
+                }
+                retryDelay = 1_000L
+                while (currentCoroutineContext().isActive) {
+                    delay(ALGORITHM_STATUS_INTERVAL_MS)
+                    val current = ServiceLocator.fallRiskRepository
+                        .getCameraMonitoringStatus()
+                        .getOrThrow()
+                    updateAlgorithmStatus(current)
+                    check(current.camera_algorithm_status !in setOf("unavailable", "error", "stopped")) {
+                        current.detail
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Log.e(TAG, "camera fall algorithm connection failed", error)
+                updateStatus(
+                    status.value.copy(
+                        cameraAlgorithmStatus = "unavailable",
+                        cameraAlgorithmDetail =
+                            "跌倒预测服务连接失败，${retryDelay / 1_000} 秒后重试：${error.message}",
+                    )
+                )
+                delay(retryDelay)
+                retryDelay = (retryDelay * 2).coerceAtMost(30_000L)
+            }
+        }
+    }
+
+    private fun updateAlgorithmStatus(current: CameraMonitoringStatus) {
+        updateStatus(
+            status.value.copy(
+                cameraAlgorithmStatus = current.camera_algorithm_status,
+                cameraAlgorithmDetail = current.detail,
+            )
+        )
     }
 
     private suspend fun alertLoop() {
@@ -310,6 +431,7 @@ class Ys7MonitorService : Service() {
         private const val MONITOR_CHANNEL_ID = "continuous_monitor"
         private const val ALERT_CHANNEL_ID = "risk_alerts"
         private const val MONITOR_NOTIFICATION_ID = 1001
+        private const val ALGORITHM_STATUS_INTERVAL_MS = 2_000L
         private const val TAG = "Ys7MonitorService"
         private val _status = MutableStateFlow(MonitorServiceStatus())
         val status = _status.asStateFlow()

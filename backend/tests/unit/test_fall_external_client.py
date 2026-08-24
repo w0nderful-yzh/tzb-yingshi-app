@@ -97,3 +97,44 @@ async def test_client_uses_real_multimodal_and_per_room_radar_endpoints() -> Non
     assert requests[1].url.path == "/api/radar/latest"
     assert not requests[1].url.params
     assert all("elder_id" not in request.url.params for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_client_controls_camera_worker_through_dedicated_lifecycle_endpoints() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        state = "STOPPED" if request.url.path.endswith("/stop") else "RUNNING"
+        return httpx.Response(
+            200,
+            json={
+                "enabled": True,
+                "state": state,
+                "input_state": "READY" if state == "RUNNING" else "WAITING",
+                "input_message": "摄像头跌倒预测运行中",
+                "checked_at": "2026-08-23T10:00:00+08:00",
+            },
+        )
+
+    source = HttpFallRiskSource(
+        camera_base_url="https://camera.test",
+        radar_room_base_urls={},
+        timeout_seconds=2.0,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        started = await source.start_camera_monitoring()
+        current = await source.get_camera_monitoring_status()
+        stopped = await source.stop_camera_monitoring()
+    finally:
+        await source.close()
+
+    assert started.state == "RUNNING"
+    assert current.state == "RUNNING"
+    assert stopped.state == "STOPPED"
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("POST", "/api/fall-live/start"),
+        ("GET", "/api/fall-live/status"),
+        ("POST", "/api/fall-live/stop"),
+    ]

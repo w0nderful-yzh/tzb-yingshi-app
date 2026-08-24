@@ -8,11 +8,20 @@ from enum import StrEnum
 
 from app.modules.fall.mapping import (
     map_camera_led_snapshot,
+    map_camera_monitoring_status,
     map_radar_only_snapshot,
     unavailable_room,
 )
-from app.modules.fall.ports import FallRiskSource, FallRiskSourceError
-from app.modules.fall.schemas import FallRiskOverview, RiskLevel, RoomFallRisk, SensorStatus
+from app.modules.fall.ports import CameraMonitoringControl, FallRiskSource, FallRiskSourceError
+from app.modules.fall.schemas import (
+    CameraAlgorithmStatus,
+    CameraMonitoringStatus,
+    CameraStreamStatus,
+    FallRiskOverview,
+    RiskLevel,
+    RoomFallRisk,
+    SensorStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +59,49 @@ class FallRiskService:
         self,
         source: FallRiskSource | None,
         *,
+        camera_control: CameraMonitoringControl | None = None,
         room_profiles: tuple[FallRiskRoomProfile, ...] = DEFAULT_ROOM_PROFILES,
     ) -> None:
         self._source = source
+        self._camera_control = camera_control
         self._room_profiles = room_profiles
 
+    async def start_camera_monitoring(self) -> CameraMonitoringStatus:
+        if self._camera_control is None:
+            return self._camera_unavailable("摄像头跌倒预测服务未配置")
+        try:
+            snapshot = await self._camera_control.start_camera_monitoring()
+        except (FallRiskSourceError, ValueError) as exc:
+            logger.warning("camera monitoring start failed: %s", type(exc).__name__)
+            return self._camera_unavailable("摄像头跌倒预测服务无法连接")
+        return map_camera_monitoring_status(snapshot)
+
+    async def stop_camera_monitoring(self) -> CameraMonitoringStatus:
+        if self._camera_control is None:
+            return self._camera_unavailable("摄像头跌倒预测服务未配置")
+        try:
+            snapshot = await self._camera_control.stop_camera_monitoring()
+        except (FallRiskSourceError, ValueError) as exc:
+            logger.warning("camera monitoring stop failed: %s", type(exc).__name__)
+            return self._camera_unavailable("摄像头跌倒预测服务无法连接")
+        return map_camera_monitoring_status(snapshot)
+
+    async def get_camera_monitoring_status(self) -> CameraMonitoringStatus:
+        if self._camera_control is None:
+            return self._camera_unavailable("摄像头跌倒预测服务未配置")
+        try:
+            snapshot = await self._camera_control.get_camera_monitoring_status()
+        except (FallRiskSourceError, ValueError) as exc:
+            logger.warning("camera monitoring status failed: %s", type(exc).__name__)
+            return self._camera_unavailable("摄像头跌倒预测服务无法连接")
+        return map_camera_monitoring_status(snapshot)
+
     async def get_overview(self, *, elder_id: str) -> FallRiskOverview:
+        camera_status_task = asyncio.create_task(self.get_camera_monitoring_status())
         rooms = await asyncio.gather(
             *(self._get_room(profile, elder_id=elder_id) for profile in self._room_profiles)
         )
+        camera_monitoring = await camera_status_task
         overall = max(
             (room.risk_level for room in rooms),
             key=_RISK_RANK.__getitem__,
@@ -67,6 +110,7 @@ class FallRiskService:
         return FallRiskOverview(
             overall_risk_level=overall,
             rooms=list(rooms),
+            camera_monitoring=camera_monitoring,
             generated_at=datetime.now(UTC),
         )
 
@@ -113,4 +157,13 @@ class FallRiskService:
                 else SensorStatus.NOT_APPLICABLE
             ),
             radar_status=SensorStatus.UNAVAILABLE,
+        )
+
+    @staticmethod
+    def _camera_unavailable(detail: str) -> CameraMonitoringStatus:
+        return CameraMonitoringStatus(
+            camera_stream_status=CameraStreamStatus.UNAVAILABLE,
+            camera_algorithm_status=CameraAlgorithmStatus.UNAVAILABLE,
+            detail=detail,
+            updated_at=datetime.now(UTC),
         )
