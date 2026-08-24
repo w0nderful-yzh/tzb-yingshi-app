@@ -73,6 +73,8 @@ import com.tzb.safeguard.ui.theme.SafeGreen
 import com.tzb.safeguard.ui.theme.TextMain
 import com.tzb.safeguard.ui.theme.TextSecondary
 
+private val PredictionCardBackground = Color(0xFFF8FAFF)
+
 @Composable
 fun HomeScreen(
     navController: NavHostController,
@@ -311,7 +313,7 @@ private fun PredictionListItem(event: RiskEvent, onClick: () -> Unit) {
 private fun EmptyPredictionCard() {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFF4F8FF),
+        color = PredictionCardBackground,
         border = BorderStroke(1.dp, LineColor),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -329,7 +331,7 @@ private fun EmptyPredictionCard() {
 private fun FallRiskSummaryCard(overview: FallRiskOverview?, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFF8FAFF),
+        color = PredictionCardBackground,
         border = BorderStroke(1.dp, LineColor),
         modifier = Modifier.clickable(onClick = onClick),
     ) {
@@ -432,7 +434,7 @@ private fun PsychologySummaryCard(state: UiState<PsychologyOverview>, onClick: (
     }
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFFAFAFB),
+        color = PredictionCardBackground,
         border = BorderStroke(1.dp, LineColor),
         modifier = Modifier.clickable(onClick = onClick),
     ) {
