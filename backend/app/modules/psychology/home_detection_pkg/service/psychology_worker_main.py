@@ -63,6 +63,8 @@ TOKEN_URL = "https://open.ys7.com/api/lapp/token/get"
 LIVE_ADDRESS_URL = "https://open.ys7.com/api/lapp/v2/live/address/get"
 PROTOCOL_CODES = {"hls": 2, "rtmp": 3}
 OPENFACE_ARGS = ["-multi_view", "1", "-track", "1"]
+DEFAULT_OPENFACE_TIMEOUT_SECONDS = 300.0
+OPENFACE_STOP_TIMEOUT_SECONDS = 15.0
 
 
 def log(message: str) -> None:
@@ -192,17 +194,32 @@ def _run_openface(openface_exe: Path, source: str, out_dir: Path) -> subprocess.
     return process
 
 
-def _finish_openface(process: subprocess.Popen, *, terminate: bool) -> int:
+def _stop_openface(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
     try:
-        if terminate and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=15)
+        process.wait(timeout=OPENFACE_STOP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=OPENFACE_STOP_TIMEOUT_SECONDS)
+
+
+def _finish_openface(
+    process: subprocess.Popen,
+    *,
+    terminate: bool,
+    timeout_seconds: float = DEFAULT_OPENFACE_TIMEOUT_SECONDS,
+) -> int:
+    try:
+        if terminate:
+            _stop_openface(process)
         else:
-            process.wait(timeout=60)
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                _stop_openface(process)
+                raise
         return process.returncode or 0
     finally:
         handle = getattr(process, "_of_log_handle", None)
@@ -225,7 +242,8 @@ def capture_window_url(
 
 
 def capture_window_tempfile(
-    openface_exe: Path, ffmpeg: str, url: str, out_dir: Path, window_seconds: float
+    openface_exe: Path, ffmpeg: str, url: str, out_dir: Path, window_seconds: float,
+    openface_timeout_seconds: float = DEFAULT_OPENFACE_TIMEOUT_SECONDS,
 ) -> Path | None:
     chunk = out_dir / "chunk.ts"
     record = subprocess.run(
@@ -240,7 +258,7 @@ def capture_window_tempfile(
     if record.returncode != 0 or not chunk.is_file() or chunk.stat().st_size == 0:
         return None
     process = _run_openface(openface_exe, str(chunk), out_dir)
-    _finish_openface(process, terminate=False)
+    _finish_openface(process, terminate=False, timeout_seconds=openface_timeout_seconds)
     csvs = sorted(out_dir.glob("*.csv"))
     return csvs[0] if csvs else None
 
@@ -278,9 +296,11 @@ def capture_window_opensdk(
     log(f"  [{window_label}] capture.begin seconds={window_seconds:.1f}")
     video = recorder.record(seconds=window_seconds)
     log(f"  [{window_label}] capture.end file={video.name} bytes={video.stat().st_size}")
-    log(f"  [{window_label}] openface.begin")
+    log(f"  [{window_label}] openface.begin timeout_seconds={args.openface_timeout_seconds:.1f}")
     process = _run_openface(openface_exe, str(video), out_dir)
-    _finish_openface(process, terminate=False)
+    _finish_openface(
+        process, terminate=False, timeout_seconds=args.openface_timeout_seconds
+    )
     log(f"  [{window_label}] openface.end returncode={process.returncode}")
     csvs = sorted(out_dir.glob("*.csv"))
     log(f"  [{window_label}] csv.count={len(csvs)}")
@@ -448,6 +468,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-valid-frames", type=int, default=1500)
     parser.add_argument("--openface-exe",
                         default=os.environ.get("OPENFACE_EXE") or os.environ.get("PSYCH_OPENFACE_EXE"))
+    parser.add_argument("--openface-timeout-seconds", type=float,
+                        default=DEFAULT_OPENFACE_TIMEOUT_SECONDS,
+                        help="单个离线视频允许 OpenFace 处理的最长时间；默认 300 秒")
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg"))
     parser.add_argument("--ffprobe", default=shutil.which("ffprobe"))
     parser.add_argument("--store-root", type=Path,
@@ -472,6 +495,8 @@ def parse_args() -> argparse.Namespace:
 def run_worker(args: argparse.Namespace) -> int:
     if args.clips_per_assessment != 7:
         raise SystemExit("--clips-per-assessment 必须是 7（MCCL 每样本恰好 7 个 clip）")
+    if args.openface_timeout_seconds <= 0:
+        raise SystemExit("--openface-timeout-seconds 必须大于 0")
     if not args.subject_key:
         raise SystemExit("--subject-key 必填")
     if not args.device_serial or not args.ys7_app_key or not args.ys7_app_secret:
@@ -549,7 +574,8 @@ def run_worker(args: argparse.Namespace) -> int:
                     )
                 elif mode == "tempfile":
                     csv_path = capture_window_tempfile(
-                        openface_exe, args.ffmpeg, url, work_dir, window_seconds
+                        openface_exe, args.ffmpeg, url, work_dir, window_seconds,
+                        args.openface_timeout_seconds,
                     )
                 else:
                     csv_path = capture_window_url(openface_exe, url, work_dir, window_seconds)

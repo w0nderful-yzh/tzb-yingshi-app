@@ -6,9 +6,11 @@ backend test env has neither). Tests that need pandas skip when it is absent.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock, call
 
 import numpy as np
 import pytest
@@ -67,6 +69,53 @@ class TestTail1800:
         assert clip.shape == (1800, 2)
         np.testing.assert_array_equal(clip[:1600], matrix)
         np.testing.assert_array_equal(clip[1600:], np.zeros((200, 2), dtype=np.float32))
+
+
+class TestFinishOpenFace:
+    def test_normal_completion_uses_configured_timeout(self) -> None:
+        process = Mock(returncode=0, _of_log_handle=None)
+
+        result = worker._finish_openface(process, terminate=False, timeout_seconds=240.0)
+
+        assert result == 0
+        process.wait.assert_called_once_with(timeout=240.0)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
+    def test_timeout_terminates_process_before_reraising(self) -> None:
+        process = Mock(returncode=1, _of_log_handle=None)
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired("FeatureExtraction.exe", 300.0),
+            1,
+        ]
+        process.poll.return_value = None
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            worker._finish_openface(process, terminate=False, timeout_seconds=300.0)
+
+        assert process.wait.call_args_list == [call(timeout=300.0), call(timeout=15.0)]
+        process.terminate.assert_called_once_with()
+        process.kill.assert_not_called()
+
+    def test_timeout_kills_process_when_terminate_does_not_stop_it(self) -> None:
+        process = Mock(returncode=1, _of_log_handle=None)
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired("FeatureExtraction.exe", 300.0),
+            subprocess.TimeoutExpired("FeatureExtraction.exe", 15.0),
+            1,
+        ]
+        process.poll.return_value = None
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            worker._finish_openface(process, terminate=False, timeout_seconds=300.0)
+
+        assert process.wait.call_args_list == [
+            call(timeout=300.0),
+            call(timeout=15.0),
+            call(timeout=15.0),
+        ]
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
 
 
 class TestBuildClipFromCsv:
