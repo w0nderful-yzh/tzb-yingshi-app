@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "event_id": "TEMPLATE",
+  "session_id": "TEMPLATE",
+  "device_id": "TEMPLATE",
+  "module": "FALL",
+  "event_type": "PRE_FALL_RISK",
+  "occurred_at": "1970-01-01T00:00:00Z",
+  "risk_score": 0.92,
+  "risk_level": "HIGH",
+  "summary": "检测到明显失衡与快速下坠，存在高跌倒风险",
+  "evidence": [
+    {
+      "code": "trunk_tilt",
+      "label": "躯干倾角",
+      "value": 52.0,
+      "unit": "degree"
+    },
+    {
+      "code": "hip_descent_speed",
+      "label": "髋部下降速度",
+      "value": 0.68,
+      "unit": "m/s"
+    }
+  ],
+  "recommended_action": "立即语音提醒并准备触发跌倒确认流程",
+  "snapshot_path": null,
+  "clip_path": null,
+  "model_version": "simulation-v1",
+  "source": "SIMULATION"
+}

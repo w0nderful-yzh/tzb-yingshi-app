@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "event_id": "TEMPLATE",
+  "session_id": "TEMPLATE",
+  "device_id": "TEMPLATE",
+  "module": "MENTAL_STATE",
+  "event_type": "ACTIVITY_DECLINE",
+  "occurred_at": "1970-01-01T00:00:00Z",
+  "risk_score": 0.58,
+  "risk_level": "MEDIUM",
+  "summary": "近期活动量下降并伴有夜间活动增加",
+  "evidence": [
+    {
+      "code": "activity_decline",
+      "label": "活动量下降比例",
+      "value": 32,
+      "unit": "%"
+    },
+    {
+      "code": "night_activity_count",
+      "label": "夜间异常活动次数",
+      "value": 4,
+      "unit": "count"
+    }
+  ],
+  "recommended_action": "建议家属关注近期生活状态变化",
+  "snapshot_path": null,
+  "clip_path": null,
+  "model_version": "simulation-v1",
+  "source": "SIMULATION"
+}

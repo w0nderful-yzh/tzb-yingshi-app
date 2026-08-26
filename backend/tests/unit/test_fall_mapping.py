@@ -44,6 +44,11 @@ def test_camera_monitoring_status_separates_stream_and_algorithm_state() -> None
 
 
 def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -> dict:
+    fusion_mode = (
+        "CAMERA_RADAR_CONSISTENT"
+        if evidence_state == "CORROBORATED_HIGH"
+        else "CAMERA_ONLY"
+    )
     return {
         "camera": {
             "camera_score": 0.72,
@@ -81,6 +86,25 @@ def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -
             "uses_radar_tcn_score": False,
             "reason_codes": ["DEBUG_ONLY"],
         },
+        "camera_led_evidence_fusion_v2": {
+            "schema_version": "camera_led_evidence_fusion_v2",
+            "camera_led_score": 0.72,
+            "camera_led_state": "HIGH",
+            "fusion_mode": fusion_mode,
+            "camera_score": 0.72,
+            "radar_score": 0.41,
+            "radar_quality": 0.85,
+            "radar_eligible": association_state == "MATCHED",
+            "radar_motion_evidence_strength": "STRONG",
+            "association_state": association_state,
+            "sync_delta_ms": 38,
+            "reason_codes": ["REALTIME_ACTIVE"],
+            "model_version": "camera-led-evidence-fusion-v2-realtime-v1",
+            "realtime_active": True,
+            "shadow_only": False,
+            "affects_app_result": True,
+            "affects_alerts": False,
+        },
         "fall_event": {
             "fall_event_status": "SUSPECTED",
             "summary": "上游事件摘要",
@@ -92,7 +116,7 @@ def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -
     }
 
 
-def test_camera_led_mapping_uses_camera_score_and_associated_radar_evidence() -> None:
+def test_camera_led_mapping_uses_realtime_fusion_v2_result() -> None:
     snapshot = CameraLedSourceSnapshot.model_validate(
         camera_payload(evidence_state="CORROBORATED_HIGH")
     )

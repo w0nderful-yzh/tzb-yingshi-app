@@ -43,6 +43,25 @@ async def test_client_uses_real_multimodal_and_per_room_radar_endpoints() -> Non
                         "radar_motion_evidence_strength": "STRONG",
                         "association_state": "MATCHED",
                     },
+                    "camera_led_evidence_fusion_v2": {
+                        "schema_version": "camera_led_evidence_fusion_v2",
+                        "camera_led_score": 0.72,
+                        "camera_led_state": "HIGH",
+                        "fusion_mode": "CAMERA_RADAR_CONSISTENT",
+                        "camera_score": 0.72,
+                        "radar_score": 0.41,
+                        "radar_quality": 0.85,
+                        "radar_eligible": True,
+                        "radar_motion_evidence_strength": "STRONG",
+                        "association_state": "MATCHED",
+                        "sync_delta_ms": 32.0,
+                        "reason_codes": ["REALTIME_ACTIVE"],
+                        "model_version": "camera-led-evidence-fusion-v2-realtime-v1",
+                        "realtime_active": True,
+                        "shadow_only": False,
+                        "affects_app_result": True,
+                        "affects_alerts": False,
+                    },
                     "fall_event": {
                         "fall_event_status": "SUSPECTED",
                         "summary": "疑似跌倒事件",
@@ -90,6 +109,7 @@ async def test_client_uses_real_multimodal_and_per_room_radar_endpoints() -> Non
         await source.close()
 
     assert camera.camera.camera_score == 0.72
+    assert camera.camera_led_evidence_fusion_v2.realtime_active is True
     assert isinstance(radar, RadarTcnPredictionSource)
     assert radar.pre_fall_score == 0.55
     assert requests[0].url.path == "/api/multimodal/camera-led-associated/latest"

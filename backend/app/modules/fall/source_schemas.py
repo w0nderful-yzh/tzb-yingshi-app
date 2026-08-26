@@ -40,6 +40,14 @@ AssociatedEvidenceState = Literal[
     "RADAR_MOTION_ANOMALY",
     "MODALITY_CONFLICT",
 ]
+CameraLedEvidenceFusionMode = Literal[
+    "CAMERA_ONLY",
+    "RADAR_SUPPORTED",
+    "CAMERA_RADAR_CONSISTENT",
+    "RADAR_CONFLICT",
+    "LOW_CONFIDENCE",
+]
+FusionStableState = Literal["UNKNOWN", "NORMAL", "WATCH", "HIGH", "IMMINENT"]
 FallLiveState = Literal[
     "DISABLED",
     "STARTING",
@@ -99,6 +107,28 @@ class AssociatedRiskAugmentation(AlgorithmSourceModel):
     uses_radar_tcn_score: bool = False
 
 
+class CameraLedEvidenceFusionV2Source(AlgorithmSourceModel):
+    schema_version: Literal["camera_led_evidence_fusion_v2"]
+    camera_led_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    camera_led_state: FusionStableState = "UNKNOWN"
+    fusion_mode: CameraLedEvidenceFusionMode = "LOW_CONFIDENCE"
+    camera_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    radar_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    radar_quality: float = Field(default=0.0, ge=0.0, le=1.0)
+    radar_eligible: bool = False
+    radar_motion_evidence_strength: Literal["NONE", "WEAK", "STRONG", "UNKNOWN"] = (
+        "UNKNOWN"
+    )
+    association_state: AlignmentAssociationState = "CALIBRATION_INVALID"
+    sync_delta_ms: float | None = Field(default=None, ge=0.0)
+    reason_codes: list[str] = Field(default_factory=list)
+    model_version: Literal["camera-led-evidence-fusion-v2-realtime-v1"]
+    realtime_active: Literal[True]
+    shadow_only: Literal[False]
+    affects_app_result: Literal[True]
+    affects_alerts: Literal[False]
+
+
 class AlgorithmFallEvent(AlgorithmSourceModel):
     fall_event_status: Literal["NO_EVENT", "SUSPECTED", "CONFIRMED", "UNKNOWN"] = "UNKNOWN"
     summary: str
@@ -109,6 +139,7 @@ class CameraLedSourceSnapshot(AlgorithmSourceModel):
     radar: RadarAlgorithmEvidence
     alignment: AlignmentAlgorithmEvidence
     associated_risk_augmentation: AssociatedRiskAugmentation | None = None
+    camera_led_evidence_fusion_v2: CameraLedEvidenceFusionV2Source
     fall_event: AlgorithmFallEvent
     timestamp: datetime
 

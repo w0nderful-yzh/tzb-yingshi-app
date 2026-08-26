@@ -14,24 +14,15 @@ from app.modules.fall.schemas import (
     SensorStatus,
 )
 from app.modules.fall.source_schemas import (
-    AssociatedEvidenceState,
+    CameraLedEvidenceFusionMode,
     CameraLedSourceSnapshot,
     CameraMonitoringSourceStatus,
-    CameraRiskState,
     QualityLevel,
     RadarCalibratedTcnPredictionSource,
     RadarGateState,
     RadarOnlySourceSnapshot,
     RadarTcnRiskState,
 )
-
-_ASSOCIATED_EVIDENCE_STATES: set[AssociatedEvidenceState] = {
-    "NORMAL_CORROBORATED",
-    "CORROBORATED_WATCH",
-    "CORROBORATED_HIGH",
-    "RADAR_MOTION_ANOMALY",
-    "MODALITY_CONFLICT",
-}
 
 
 def map_camera_monitoring_status(
@@ -74,12 +65,8 @@ def map_camera_led_snapshot(
 ) -> RoomFallRisk:
     camera_status = _sensor_status(snapshot.camera.available, snapshot.camera.quality_level)
     radar_status = _sensor_status(snapshot.radar.available, snapshot.radar.quality_level)
-    augmentation = snapshot.associated_risk_augmentation
-    association_raw = (
-        augmentation.association_state
-        if augmentation is not None
-        else snapshot.alignment.association_state
-    )
+    fusion_v2 = snapshot.camera_led_evidence_fusion_v2
+    association_raw = fusion_v2.association_state
     association = _association_status(association_raw)
 
     if camera_status not in {SensorStatus.AVAILABLE, SensorStatus.DEGRADED}:
@@ -90,35 +77,30 @@ def map_camera_led_snapshot(
             radar_status=radar_status,
         )
 
-    evidence_state: AssociatedEvidenceState = (
-        augmentation.associated_evidence_state if augmentation is not None else "UNKNOWN"
-    )
-    uses_associated_evidence = (
-        association is AssociationStatus.ASSOCIATED
-        and radar_status in {SensorStatus.AVAILABLE, SensorStatus.DEGRADED}
-        and evidence_state in _ASSOCIATED_EVIDENCE_STATES
-    )
+    uses_associated_evidence = fusion_v2.fusion_mode in {
+        "RADAR_SUPPORTED",
+        "CAMERA_RADAR_CONSISTENT",
+        "RADAR_CONFLICT",
+    }
     decision_path = (
         DecisionPath.CAMERA_LED_RADAR_EVIDENCE
         if uses_associated_evidence
         else DecisionPath.CAMERA_ONLY
     )
-    prediction_raw = (
-        augmentation.associated_risk_state
-        if augmentation is not None
-        else snapshot.camera.camera_risk_state
-    )
-    risk_level = _camera_risk_level(snapshot.camera.camera_risk_state)
-    prediction = _camera_prediction_state(prediction_raw)
+    risk_level = _camera_led_risk_level(fusion_v2.camera_led_state)
+    prediction = _camera_prediction_state(fusion_v2.camera_led_state)
     event_status = _camera_event_status(snapshot.fall_event.fall_event_status)
-    joint = _camera_joint_assessment(evidence_state, decision_path)
+    joint = _camera_led_joint_assessment(
+        fusion_v2.fusion_mode,
+        fusion_v2.camera_led_state,
+    )
     return RoomFallRisk(
         room_id=room_id,
         room_name=room_name,
         decision_path=decision_path,
         risk_level=risk_level,
-        # C keeps the BioSTGCN camera score unchanged; Fixed Fusion is never read here.
-        risk_score=snapshot.camera.camera_score,
+        # Fusion v2 keeps the BioSTGCN score unchanged; Fixed remains baseline-only.
+        risk_score=fusion_v2.camera_led_score,
         prediction_state=prediction,
         fall_event_status=event_status,
         camera_status=camera_status,
@@ -223,13 +205,14 @@ def _association_status(value: str) -> AssociationStatus:
     return AssociationStatus.NOT_ASSOCIATED
 
 
-def _camera_risk_level(value: CameraRiskState) -> RiskLevel:
+def _camera_led_risk_level(value: str) -> RiskLevel:
     return {
-        "LOW": RiskLevel.LOW,
-        "MEDIUM": RiskLevel.MEDIUM,
+        "NORMAL": RiskLevel.NORMAL,
+        "WATCH": RiskLevel.MEDIUM,
         "HIGH": RiskLevel.HIGH,
+        "IMMINENT": RiskLevel.CRITICAL,
         "UNKNOWN": RiskLevel.UNKNOWN,
-    }[value]
+    }.get(value, RiskLevel.UNKNOWN)
 
 
 def _camera_prediction_state(value: str) -> PredictionState:
@@ -253,21 +236,23 @@ def _camera_event_status(value: str) -> FallEventStatus:
     }[value]
 
 
-def _camera_joint_assessment(
-    evidence_state: AssociatedEvidenceState,
-    decision_path: DecisionPath,
+def _camera_led_joint_assessment(
+    mode: CameraLedEvidenceFusionMode,
+    state: str,
 ) -> JointAssessment:
-    if decision_path is DecisionPath.CAMERA_ONLY:
-        if evidence_state == "NOT_ASSOCIATED":
-            return JointAssessment.NOT_ASSOCIATED
-        return JointAssessment.CAMERA_ONLY
-    if evidence_state == "CORROBORATED_HIGH":
-        return JointAssessment.CORROBORATED_HIGH
-    if evidence_state in {"NORMAL_CORROBORATED", "CORROBORATED_WATCH"}:
+    if mode == "CAMERA_RADAR_CONSISTENT":
+        return (
+            JointAssessment.CORROBORATED_HIGH
+            if state in {"HIGH", "IMMINENT"}
+            else JointAssessment.RADAR_SUPPORTS_CAMERA
+        )
+    if mode == "RADAR_SUPPORTED":
         return JointAssessment.RADAR_SUPPORTS_CAMERA
-    if evidence_state in {"RADAR_MOTION_ANOMALY", "MODALITY_CONFLICT"}:
+    if mode == "RADAR_CONFLICT":
         return JointAssessment.MODALITY_CONFLICT
-    return JointAssessment.CAMERA_LED
+    if mode == "CAMERA_ONLY":
+        return JointAssessment.CAMERA_ONLY
+    return JointAssessment.UNAVAILABLE
 
 
 def _radar_state_and_event(

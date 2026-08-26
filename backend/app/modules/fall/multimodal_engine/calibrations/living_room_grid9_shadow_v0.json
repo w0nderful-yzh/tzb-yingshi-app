@@ -1,0 +1,70 @@
+{
+  "schema_version": "camera_radar_coarse_affine_v1",
+  "calibration_version": "living_room_grid9_shadow_v0",
+  "status": "SHADOW_ONLY_NOT_RUNTIME",
+  "purpose": "COARSE_POSITION_AND_SAME_PERSON_CONFIRMATION",
+  "source_run": "coverage_collinear_20260814_153942",
+  "source_samples": "calibration_samples_grid9_retry_v2.jsonl",
+  "excluded_positions": [
+    "P01"
+  ],
+  "training_positions": [
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09"
+  ],
+  "mapping": {
+    "type": "AFFINE_RADAR_XY_TO_CAMERA_UV",
+    "matrix_2x3": [
+      [
+        -1111.7823886800734,
+        205.12175527195654,
+        414.189247894275
+      ],
+      [
+        -142.98793355782868,
+        -69.11801573385603,
+        767.5044336209052
+      ]
+    ]
+  },
+  "image_size": [
+    1280,
+    720
+  ],
+  "valid_radar_region_xy_m": {
+    "x_min": -0.10,
+    "x_max": 0.78,
+    "y_min": 1.90,
+    "y_max": 3.80
+  },
+  "gates": {
+    "max_sync_delta_ms": 50.0,
+    "spatial_gate_type": "PROJECTED_POINT_TO_EXPANDED_CAMERA_BBOX",
+    "uncertainty_radius_px": 150.0,
+    "footpoint_error_role": "AUDIT_ONLY_NOT_A_HARD_GATE"
+  },
+  "training_metrics": {
+    "fit_rmse_px": 39.61,
+    "fit_median_px": 26.55,
+    "fit_max_px": 73.57,
+    "leave_one_out_rmse_px": 64.01,
+    "leave_one_out_median_px": 41.43,
+    "leave_one_out_p95_px": 113.98,
+    "leave_one_out_max_px": 119.35
+  },
+  "limitations": [
+    "NOT_PIXEL_ACCURATE",
+    "NOT_METRIC_CAMERA_LOCALIZATION",
+    "NOT_BIOMETRIC_IDENTITY",
+    "MULTIPLE_NEARBY_PEOPLE_MAY_BE_AMBIGUOUS",
+    "OUTSIDE_CALIBRATED_REGION_MUST_DEGRADE_TO_UNKNOWN"
+  ],
+  "runtime_enabled": false,
+  "fusion_enabled": false
+}
