@@ -105,6 +105,19 @@ class RadarServiceDataSourceAdapter(DataSourceAdapter):
             self._client = self._create_client()
         super().start(session_id)
 
+    def ensure_running(self) -> dict[str, object]:
+        """Idempotently ask the Radar service to keep its REAL worker alive."""
+
+        try:
+            response = self._client.post("/api/radar/ensure-running")
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError("Radar Worker ensure_running failed") from exc
+        if not isinstance(payload, dict) or payload.get("status") != "running":
+            raise RuntimeError("Radar Worker returned an invalid lifecycle status")
+        return payload
+
     def read(self) -> UnifiedDataPacket | None:
         self._ensure_running()
         try:

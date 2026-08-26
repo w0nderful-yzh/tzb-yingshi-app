@@ -19,6 +19,30 @@ data class CameraMonitoringStatus(
 )
 
 @Serializable
+data class GuardianCapabilityStatus(
+    val state: String = "unavailable",
+    val enabled: Boolean = false,
+    val detail: String = "暂不可用",
+)
+
+@Serializable
+data class GuardianSessionStatus(
+    val session_id: String? = null,
+    val active: Boolean = false,
+    val state: String = "stopped",
+    val camera_analysis: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val fraud_monitoring: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val psychology_observation: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val radar_worker: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val radar_participation: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val fusion: GuardianCapabilityStatus = GuardianCapabilityStatus(),
+    val camera_preview_managed_by_guard: Boolean = false,
+    val reason_codes: List<String> = emptyList(),
+    val started_at: String? = null,
+    val updated_at: String = "",
+)
+
+@Serializable
 data class RoomFallRisk(
     val room_id: String,
     val room_name: String,

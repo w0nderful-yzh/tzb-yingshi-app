@@ -389,8 +389,13 @@ TI_OFFICIAL_OUTPUT_CWD=<radar_module 目录>
 然后调用：
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8010/api/radar/real
+Invoke-RestMethod -Method Post http://127.0.0.1:8010/api/radar/ensure-running
+Invoke-RestMethod http://127.0.0.1:8010/api/radar/status
 ```
+
+`ensure-running` 是幂等接口：首次调用启动唯一 REAL Worker，后续调用只返回
+`already_running=true`，不会再次打开串口。Worker 运行期间由同一个逻辑实例
+负责串口重连。守护会话停止不会调用 Radar `/stop`；`/stop` 仅供开发维护。
 
 每次板卡断电后不需要重新烧录固件，但需重新发送 `.cfg`。REAL
 桥接进程会在启动时自动完成这一步。启动前不要让 Industrial

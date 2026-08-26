@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from radar_module.acquisition.ti_reader import (
     JsonlReplayAdapter,
     RadarSourceAdapter,
-    TiOfficialOutputAdapter,
+    ReconnectingTiOfficialOutputAdapter,
     TiRadarReader,
 )
 from radar_module.contracts import (
@@ -72,6 +72,7 @@ class RadarApiSettings:
     device: str = "cpu"
     ti_official_command: tuple[str, ...] | None = None
     ti_official_cwd: Path | None = None
+    ti_reconnect_seconds: float = 2.0
     research_shadow_enabled: bool = False
     research_checkpoint_path: Path | None = None
     research_confirmation_windows: int = 3
@@ -174,6 +175,7 @@ class RadarApiSettings:
             device=os.getenv("RADAR_TORCH_DEVICE", "cpu"),
             ti_official_command=command,
             ti_official_cwd=Path(cwd_value).resolve() if cwd_value else None,
+            ti_reconnect_seconds=float(os.getenv("RADAR_TI_RECONNECT_SECONDS", "2")),
             research_shadow_enabled=_environment_flag(
                 "RADAR_RESEARCH_SHADOW_ENABLED", False
             ),
@@ -323,6 +325,7 @@ class RadarRuntime:
         self._worker: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
+        self._start_lock = threading.Lock()
         self._latest: RadarRiskResult | None = None
         self._last_error: str | None = None
         self._latest_research: ResearchLiveResultV2 | None = None
@@ -483,11 +486,27 @@ class RadarRuntime:
                 "TI_OFFICIAL_OUTPUT_COMMAND_JSON to the official/bridge command"
             )
         self.start_source(
-            TiOfficialOutputAdapter(
+            ReconnectingTiOfficialOutputAdapter(
                 command=command,
                 cwd=self.settings.ti_official_cwd,
+                reconnect_seconds=self.settings.ti_reconnect_seconds,
             )
         )
+
+    def ensure_real_running(self) -> bool:
+        """Ensure the singleton REAL worker exists without restarting it.
+
+        Returns ``True`` only when this call started the source. Concurrent
+        retries are serialized and observe the already-running worker.
+        """
+
+        with self._start_lock:
+            if self.is_running:
+                if self.source_mode is not SourceMode.REAL:
+                    raise RuntimeError("radar worker is already running in replay mode")
+                return False
+            self.start_real()
+            return True
 
     def stop_source(self) -> None:
         with self._lock:
@@ -1077,6 +1096,10 @@ def create_app(settings: RadarApiSettings | None = None) -> FastAPI:
     def health() -> dict[str, object]:
         return runtime.health_payload()
 
+    @app.get("/api/radar/status")
+    def lifecycle_status() -> dict[str, object]:
+        return runtime.health_payload()
+
     @app.get("/api/radar/latest")
     def latest() -> dict[str, object]:
         def attach_alignment(payload: dict[str, object]) -> dict[str, object]:
@@ -1182,14 +1205,28 @@ def create_app(settings: RadarApiSettings | None = None) -> FastAPI:
             "loop": request.loop,
         }
 
+    @app.post("/api/radar/ensure-running")
+    def ensure_running() -> dict[str, object]:
+        try:
+            started = runtime.ensure_real_running()
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "status": "running",
+            "started": started,
+            "already_running": not started,
+            "radar_connected": runtime.is_running,
+            "source_mode": SourceMode.REAL.value,
+        }
+
     @app.post("/api/radar/real", status_code=status.HTTP_202_ACCEPTED)
     def real() -> dict[str, object]:
         try:
-            runtime.start_real()
+            started = runtime.ensure_real_running()
         except (OSError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
-            "status": "started",
+            "status": "started" if started else "already_running",
             "source_mode": SourceMode.REAL.value,
         }
 

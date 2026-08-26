@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     psychology_api_key: SecretStr | None = None
     psychology_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
     psychology_latest_path: str = "/api/psychology/assessments/latest"
+    psychology_observation_interval_seconds: float = Field(
+        default=900.0,
+        ge=60.0,
+        le=24 * 3600.0,
+    )
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

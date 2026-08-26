@@ -7,6 +7,7 @@ from app.modules.fall.multimodal_engine.api.dashboard import router as dashboard
 from app.modules.fall.multimodal_engine.api.ezviz import router as ezviz_router
 from app.modules.fall.multimodal_engine.api.fall_inference import router as fall_inference_router
 from app.modules.fall.multimodal_engine.api.fall_live import router as fall_live_router
+from app.modules.fall.multimodal_engine.api.guard_session import router as guard_session_router
 from app.modules.fall.multimodal_engine.api.events import router as events_router
 from app.modules.fall.multimodal_engine.api.health import router as health_router
 from app.modules.fall.multimodal_engine.api.monitoring import router as monitoring_router
@@ -32,6 +33,7 @@ from app.modules.fall.multimodal_engine.services.camera_radar_alignment import (
 )
 from app.modules.fall.multimodal_engine.services.alignment_aware_risk_augmentation import AssociatedEvidenceConfig
 from app.modules.fall.multimodal_engine.services.radar_eligibility import RadarEligibilityConfig
+from app.modules.fall.multimodal_engine.services.guard_session import MultimodalGuardSessionService
 
 
 def create_app() -> FastAPI:
@@ -48,8 +50,14 @@ def create_app() -> FastAPI:
         radar_risk_events_enabled=settings.radar_risk_events_enabled,
         allow_formal_predictions=settings.radar_formal_predictions_enabled,
         radar_track_buffer=radar_track_buffer,
+        session_enabled=False,
     )
     fall_live_monitor = FallLiveMonitorService(settings)
+    guard_session = MultimodalGuardSessionService(
+        fall_live_monitor,
+        radar_integration,
+        radar_source,
+    )
     fusion_shadow_logger = FusionShadowLogger(
         settings.fusion_shadow_log_path,
         enabled=settings.fusion_shadow_log_enabled,
@@ -159,7 +167,6 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         if settings.radar_integration_enabled:
             radar_integration.start()
-        fall_live_monitor.start()
         fusion_shadow_sampler.start()
         try:
             yield
@@ -176,6 +183,7 @@ def create_app() -> FastAPI:
     )
     app.state.radar_integration_service = radar_integration
     app.state.fall_live_monitor_service = fall_live_monitor
+    app.state.guard_session_service = guard_session
     app.state.multimodal_fusion_service = multimodal_fusion
     app.state.fusion_event_bridge = fusion_event_bridge
     app.state.fusion_shadow_sampler = fusion_shadow_sampler
@@ -197,6 +205,7 @@ def create_app() -> FastAPI:
     app.include_router(ezviz_router)
     app.include_router(fall_inference_router)
     app.include_router(fall_live_router)
+    app.include_router(guard_session_router)
     return app
 
 

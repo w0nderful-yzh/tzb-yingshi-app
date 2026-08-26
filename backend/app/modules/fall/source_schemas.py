@@ -65,6 +65,14 @@ FallLiveInputState = Literal[
     "INSUFFICIENT_POSE",
     "READY",
 ]
+GuardSessionState = Literal["STOPPED", "STARTING", "ACTIVE", "DEGRADED"]
+GuardCapabilityState = Literal[
+    "STOPPED",
+    "STARTING",
+    "RUNNING",
+    "DEGRADED",
+    "UNAVAILABLE",
+]
 
 
 class AlgorithmSourceModel(BaseModel):
@@ -151,6 +159,26 @@ class CameraMonitoringSourceStatus(AlgorithmSourceModel):
     input_message: str = "等待摄像头输入"
     error: str | None = None
     checked_at: datetime
+
+
+class GuardCapabilitySourceStatus(AlgorithmSourceModel):
+    state: GuardCapabilityState
+    enabled_for_session: bool
+    detail: str
+
+
+class GuardSessionSourceStatus(AlgorithmSourceModel):
+    schema_version: Literal["multimodal_guard_session_v1"]
+    session_id: str | None = None
+    active: bool
+    state: GuardSessionState
+    camera_analysis: GuardCapabilitySourceStatus
+    radar_worker: GuardCapabilitySourceStatus
+    radar_participation: GuardCapabilitySourceStatus
+    fusion: GuardCapabilitySourceStatus
+    reason_codes: list[str] = Field(default_factory=list)
+    started_at: datetime | None = None
+    updated_at: datetime
 
 
 class RadarTcnPredictionSource(AlgorithmSourceModel):

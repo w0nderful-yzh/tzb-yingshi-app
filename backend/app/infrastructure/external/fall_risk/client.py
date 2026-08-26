@@ -10,6 +10,7 @@ from app.modules.fall.ports import FallRiskSourceError
 from app.modules.fall.source_schemas import (
     CameraLedSourceSnapshot,
     CameraMonitoringSourceStatus,
+    GuardSessionSourceStatus,
     RadarLatestResponse,
     RadarOnlySourceSnapshot,
 )
@@ -28,6 +29,9 @@ class HttpFallRiskSource:
         camera_start_path: str = "/api/fall-live/start",
         camera_stop_path: str = "/api/fall-live/stop",
         camera_status_path: str = "/api/fall-live/status",
+        guard_start_path: str = "/api/guard-session/start",
+        guard_stop_path: str = "/api/guard-session/stop",
+        guard_status_path: str = "/api/guard-session/status",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         headers = {"Accept": "application/json"}
@@ -58,6 +62,26 @@ class HttpFallRiskSource:
         self._camera_start_path = camera_start_path
         self._camera_stop_path = camera_stop_path
         self._camera_status_path = camera_status_path
+        self._guard_start_path = guard_start_path
+        self._guard_stop_path = guard_stop_path
+        self._guard_status_path = guard_status_path
+
+    async def start_guard_session(self, session_id: str) -> GuardSessionSourceStatus:
+        if self._camera_client is None:
+            raise FallRiskSourceError("multimodal guard-session upstream is not configured")
+        payload = await self._request(
+            self._camera_client,
+            self._guard_start_path,
+            method="POST",
+            json={"session_id": session_id},
+        )
+        return self._validate(GuardSessionSourceStatus, payload)
+
+    async def stop_guard_session(self) -> GuardSessionSourceStatus:
+        return await self._guard_control(self._guard_stop_path, method="POST")
+
+    async def get_guard_session_status(self) -> GuardSessionSourceStatus:
+        return await self._guard_control(self._guard_status_path, method="GET")
 
     async def start_camera_monitoring(self) -> CameraMonitoringSourceStatus:
         return await self._camera_control(self._camera_start_path, method="POST")
@@ -124,6 +148,17 @@ class HttpFallRiskSource:
         payload = await self._request(self._camera_client, path, method=method)
         return self._validate(CameraMonitoringSourceStatus, payload)
 
+    async def _guard_control(
+        self,
+        path: str,
+        *,
+        method: str,
+    ) -> GuardSessionSourceStatus:
+        if self._camera_client is None:
+            raise FallRiskSourceError("multimodal guard-session upstream is not configured")
+        payload = await self._request(self._camera_client, path, method=method)
+        return self._validate(GuardSessionSourceStatus, payload)
+
     @staticmethod
     async def _request(
         client: httpx.AsyncClient,
@@ -131,9 +166,15 @@ class HttpFallRiskSource:
         *,
         method: str = "GET",
         params: Mapping[str, str] | None = None,
+        json: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
         try:
-            response = await client.request(method, path.lstrip("/"), params=params)
+            response = await client.request(
+                method,
+                path.lstrip("/"),
+                params=params,
+                json=json,
+            )
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:

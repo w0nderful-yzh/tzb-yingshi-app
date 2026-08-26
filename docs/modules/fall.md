@@ -61,3 +61,30 @@ App contract 不包含 Fixed Fusion score、A/B/C 实验名、checkpoint、raw t
 - Radar-only：优先 `calibrated_tcn_prediction`，其次 `tcn_prediction` 或 `tcn_baseline`；读取 `pre_fall_score`、正式状态、`score_valid`、`data_quality`、`shadow_only` 与 `alert_suppressed`。
 
 `fusion`、`temporal_associated_fusion`、checkpoint、阈值、raw track/sync/association 字段和 reason codes 只留在算法响应或调试日志，不进入 App-facing contract。
+
+## 一键守护会话生命周期
+
+Camera 直播预览不是守护会话的一部分，进入直播页即可独立取流。正式 UI 只提供一个“开始/停止守护”入口，用同一个会话统一控制 Camera 跌倒分析、诈骗 PCM 转发、心理周期观察和 Radar Evidence 参与状态：
+
+```text
+App 开始守护
+  -> POST /api/v1/guard-session/start（幂等）
+  -> 多模态引擎 /api/guard-session/start（幂等）
+  -> Camera 分析启用
+  -> Radar API ensure_running（系统级单例）
+  -> Radar Evidence 绑定当前 session
+
+App 停止守护
+  -> Camera 分析停止、诈骗 PCM 转发停止、心理周期观察停止
+  -> Radar Evidence 解除当前 session 绑定
+  -> Radar Worker 保持运行
+```
+
+生命周期接口：
+
+- `POST /api/v1/guard-session/start`：需要登录、老人权限和 `Idempotency-Key`；重复请求返回同一活动会话。
+- `POST /api/v1/guard-session/stop`：需要登录和 `Idempotency-Key`；重复停止安全返回 `STOPPED`。
+- `GET /api/v1/guard-session/status`：返回 Camera 分析、诈骗监听、心理观察、Radar Worker、Radar 会话参与和 Fusion 的独立状态。
+- Radar 服务的 `POST /api/radar/ensure-running` 与 `GET /api/radar/status` 只管理/查询系统级单例，不属于最终 App UI。
+
+Radar 缺失、关联失败或质量不足不会阻止会话启动；状态中保留原因码并让 Fusion 安全降级为 Camera-only。该生命周期没有修改 BioSTGCN、B0 calibrated TCN、Fusion v2、Fixed 0.6/0.4 baseline、阈值或 50 ms Gate。

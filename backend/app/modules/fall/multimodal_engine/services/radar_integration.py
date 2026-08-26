@@ -44,6 +44,7 @@ class RadarIntegrationService:
         radar_risk_events_enabled: bool = True,
         allow_formal_predictions: bool = False,
         radar_track_buffer: RadarTrackEvidenceBuffer | None = None,
+        session_enabled: bool = True,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -53,6 +54,8 @@ class RadarIntegrationService:
         self.radar_risk_events_enabled = radar_risk_events_enabled
         self.allow_formal_predictions = allow_formal_predictions
         self.radar_track_buffer = radar_track_buffer
+        self._session_enabled = session_enabled
+        self._session_id: str | None = None
         self._radar_risk_latched = False
         self._status = RadarStatusResponse(online=False)
         self._status_lock = threading.RLock()
@@ -62,6 +65,25 @@ class RadarIntegrationService:
     @property
     def is_running(self) -> bool:
         return self._worker is not None and self._worker.is_alive()
+
+    @property
+    def session_enabled(self) -> bool:
+        with self._status_lock:
+            return self._session_enabled
+
+    def enable_for_session(self, session_id: str) -> None:
+        normalized = session_id.strip()
+        if not normalized:
+            raise ValueError("session_id must not be blank")
+        with self._status_lock:
+            self._session_enabled = True
+            self._session_id = normalized
+
+    def disable_for_session(self) -> None:
+        with self._status_lock:
+            self._session_enabled = False
+            self._session_id = None
+        self._set_offline("RADAR_SESSION_NOT_ENABLED")
 
     def start(self) -> None:
         if self.is_running:
@@ -95,6 +117,10 @@ class RadarIntegrationService:
         latest = self.source_adapter.latest_payload
         if not self.source_adapter.online or latest is None:
             self._set_offline(self.source_adapter.last_error)
+            return
+
+        if not self.session_enabled:
+            self._set_offline("RADAR_SESSION_NOT_ENABLED")
             return
 
         self._set_online(latest)

@@ -358,6 +358,90 @@ class TiOfficialOutputAdapter:
             self._output_queue.put(None)
 
 
+class ReconnectingTiOfficialOutputAdapter:
+    """Keep one logical REAL source alive while its bridge reconnects.
+
+    The Radar API owns exactly one inference worker.  When the TI bridge or
+    serial connection drops, this adapter recreates only the bridge inside
+    that worker; it never starts a second Radar inference process.
+    """
+
+    source_mode = SourceMode.REAL
+
+    def __init__(
+        self,
+        *,
+        command: Sequence[str],
+        cwd: str | Path | None = None,
+        reconnect_seconds: float = 2.0,
+    ) -> None:
+        if reconnect_seconds <= 0:
+            raise ValueError("reconnect_seconds must be positive")
+        self._command = tuple(command)
+        self._cwd = cwd
+        self._reconnect_seconds = reconnect_seconds
+        self._delegate: TiOfficialOutputAdapter | None = None
+        self._started = False
+        self._stop_event = threading.Event()
+        self.last_error: str | None = None
+
+    def start(self) -> None:
+        if self._started:
+            return
+        self._stop_event.clear()
+        self._started = True
+        try:
+            self._connect()
+        except BaseException:
+            self._started = False
+            self._stop_delegate()
+            raise
+
+    def read_decoded(self) -> Mapping[str, Any] | None:
+        if not self._started:
+            raise RuntimeError("reconnecting TI adapter has not been started")
+        while self._started and not self._stop_event.is_set():
+            delegate = self._delegate
+            if delegate is None:
+                try:
+                    self._connect()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
+                    self._stop_event.wait(self._reconnect_seconds)
+                    continue
+                delegate = self._delegate
+            assert delegate is not None
+            try:
+                payload = delegate.read_decoded()
+                self.last_error = None
+                return payload
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                self._stop_delegate()
+                self._stop_event.wait(self._reconnect_seconds)
+        return None
+
+    def stop(self) -> None:
+        self._started = False
+        self._stop_event.set()
+        self._stop_delegate()
+
+    def _connect(self) -> None:
+        delegate = TiOfficialOutputAdapter(
+            command=self._command,
+            cwd=self._cwd,
+        )
+        delegate.start()
+        self._delegate = delegate
+        self.last_error = None
+
+    def _stop_delegate(self) -> None:
+        delegate = self._delegate
+        self._delegate = None
+        if delegate is not None:
+            delegate.stop()
+
+
 class JsonlReplayAdapter:
     """以标准化RadarFrame JSONL作为离线备用数据源。"""
 

@@ -44,6 +44,8 @@ from app.modules.fraud.service import FraudSessionService
 from app.modules.fraud.session_tracker import FraudSessionTracker
 from app.modules.fraud.text_classifier import get_default_classifier
 from app.modules.fraud.visual_event_store import VisualEventStore
+from app.modules.guarding.psychology_observation import PsychologyObservationController
+from app.modules.guarding.service import GuardianSessionService
 from app.modules.psychology.ports import PsychologySource
 from app.modules.psychology.service import PsychologyService
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
@@ -122,6 +124,17 @@ def create_app(
             # Default: read the latest snapshot directly from the algorithm store.
             runtime_psychology_source = LocalPsychologySource()
     psychology_service = PsychologyService(runtime_psychology_source)
+    psychology_observation = PsychologyObservationController(
+        psychology_service,
+        interval_seconds=runtime_settings.psychology_observation_interval_seconds,
+    )
+    guardian_session_service = GuardianSessionService(
+        fall_control=fall_source_client,
+        psychology=psychology_observation,
+        fraud_monitoring_enabled=(
+            runtime_settings.ys7_media_enabled and runtime_settings.sensevoice_enabled
+        ),
+    )
     risk_event_repository = (
         RiskEventRepository(database, realtime_broker=realtime_event_broker)
         if database is not None
@@ -310,6 +323,7 @@ def create_app(
                 media_worker.last_error = "SenseVoice ingestion is disabled"
             yield
         finally:
+            await guardian_session_service.shutdown()
             await media_worker.stop()
             await alarm_poll_worker.stop()
             await event_worker.stop()
@@ -351,6 +365,7 @@ def create_app(
     application.state.model_readiness = model_readiness
     application.state.fall_risk_service = fall_risk_service
     application.state.psychology_service = psychology_service
+    application.state.guardian_session_service = guardian_session_service
     application.add_middleware(RequestIdMiddleware)
     register_exception_handlers(application)
     application.include_router(api_router, prefix="/api/v1")

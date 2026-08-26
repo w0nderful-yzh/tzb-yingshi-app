@@ -2,6 +2,7 @@ package com.tzb.safeguard.data.fall.repository
 
 import com.tzb.safeguard.data.fall.model.FallRiskOverview
 import com.tzb.safeguard.data.fall.model.CameraMonitoringStatus
+import com.tzb.safeguard.data.fall.model.GuardianSessionStatus
 import com.tzb.safeguard.data.fall.network.FallRiskApi
 import com.tzb.safeguard.data.repository.ApiException
 import java.io.IOException
@@ -36,6 +37,15 @@ class FallRiskRepository(private val api: FallRiskApi) {
     suspend fun getCameraMonitoringStatus(): Result<CameraMonitoringStatus> =
         cameraMonitoringRequest { api.getCameraMonitoringStatus() }
 
+    suspend fun startGuardSession(): Result<GuardianSessionStatus> =
+        guardSessionRequest { api.startGuardSession() }
+
+    suspend fun stopGuardSession(): Result<GuardianSessionStatus> =
+        guardSessionRequest { api.stopGuardSession() }
+
+    suspend fun getGuardSessionStatus(): Result<GuardianSessionStatus> =
+        guardSessionRequest { api.getGuardSessionStatus() }
+
     private suspend fun cameraMonitoringRequest(
         request: suspend () -> com.tzb.safeguard.data.model.ApiResponse<CameraMonitoringStatus>,
     ): Result<CameraMonitoringStatus> = try {
@@ -55,5 +65,26 @@ class FallRiskRepository(private val api: FallRiskApi) {
         Result.failure(ApiException(-1, "网络连接失败，请检查网络后重试"))
     } catch (error: Exception) {
         Result.failure(ApiException(-1, "摄像头跌倒预测服务请求异常"))
+    }
+
+    private suspend fun guardSessionRequest(
+        request: suspend () -> com.tzb.safeguard.data.model.ApiResponse<GuardianSessionStatus>,
+    ): Result<GuardianSessionStatus> = try {
+        val response = request()
+        when {
+            response.code == 0 && response.data != null -> Result.success(response.data)
+            else -> Result.failure(
+                ApiException(
+                    response.code,
+                    response.message.ifBlank { "统一守护会话暂不可用" },
+                )
+            )
+        }
+    } catch (error: HttpException) {
+        Result.failure(ApiException(error.code(), "统一守护会话请求失败"))
+    } catch (error: IOException) {
+        Result.failure(ApiException(-1, "网络连接失败，请检查网络后重试"))
+    } catch (error: Exception) {
+        Result.failure(ApiException(-1, "统一守护会话请求异常"))
     }
 }

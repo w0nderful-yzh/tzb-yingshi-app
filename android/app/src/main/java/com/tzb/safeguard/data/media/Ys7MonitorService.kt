@@ -14,7 +14,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.tzb.safeguard.MainActivity
 import com.tzb.safeguard.ServiceLocator
-import com.tzb.safeguard.data.fall.model.CameraMonitoringStatus
+import com.tzb.safeguard.data.fall.model.GuardianSessionStatus
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RealtimeRiskEvent
 import com.tzb.safeguard.data.realtime.AlertWebSocketClient
@@ -41,6 +41,11 @@ data class MonitorServiceStatus(
     val cameraStreamStatus: String = "stopped",
     val cameraAlgorithmStatus: String = "stopped",
     val cameraAlgorithmDetail: String = "摄像头跌倒预测未启动",
+    val fraudMonitoringStatus: String = "stopped",
+    val psychologyObservationStatus: String = "stopped",
+    val radarWorkerStatus: String = "unavailable",
+    val radarParticipationStatus: String = "stopped",
+    val fusionStatus: String = "stopped",
     val detail: String = "持续守护未开启",
     val lastAudioAt: String? = null,
 )
@@ -95,7 +100,7 @@ class Ys7MonitorService : Service() {
                 cameraStreamStatus = "connecting",
                 cameraAlgorithmStatus = "starting",
                 cameraAlgorithmDetail = "正在启动摄像头跌倒预测",
-                detail = "正在连接摄像头、算法与告警通道",
+                detail = "正在启用统一风险分析会话",
             )
         )
         ServiceCompat.startForeground(
@@ -134,12 +139,17 @@ class Ys7MonitorService : Service() {
                 detail = "正在停止摄像头与跌倒预测",
             )
         )
-        val stopped = ServiceLocator.fallRiskRepository.stopCameraMonitoring()
+        val stopped = ServiceLocator.fallRiskRepository.stopGuardSession()
         _status.value = stopped.fold(
             onSuccess = {
                 MonitorServiceStatus(
-                    cameraAlgorithmStatus = it.camera_algorithm_status,
-                    cameraAlgorithmDetail = it.detail,
+                    cameraAlgorithmStatus = it.camera_analysis.state,
+                    cameraAlgorithmDetail = it.camera_analysis.detail,
+                    fraudMonitoringStatus = it.fraud_monitoring.state,
+                    psychologyObservationStatus = it.psychology_observation.state,
+                    radarWorkerStatus = it.radar_worker.state,
+                    radarParticipationStatus = it.radar_participation.state,
+                    fusionStatus = it.fusion.state,
                 )
             },
             onFailure = {
@@ -247,32 +257,32 @@ class Ys7MonitorService : Service() {
                     )
                 )
                 val started = ServiceLocator.fallRiskRepository
-                    .startCameraMonitoring()
+                    .startGuardSession()
                     .getOrThrow()
-                updateAlgorithmStatus(started)
-                check(started.camera_algorithm_status !in setOf("unavailable", "error", "stopped")) {
-                    started.detail
+                updateGuardianStatus(started)
+                check(started.active) {
+                    "统一守护会话未能启动"
                 }
                 retryDelay = 1_000L
                 while (currentCoroutineContext().isActive) {
                     delay(ALGORITHM_STATUS_INTERVAL_MS)
                     val current = ServiceLocator.fallRiskRepository
-                        .getCameraMonitoringStatus()
+                        .getGuardSessionStatus()
                         .getOrThrow()
-                    updateAlgorithmStatus(current)
-                    check(current.camera_algorithm_status !in setOf("unavailable", "error", "stopped")) {
-                        current.detail
+                    updateGuardianStatus(current)
+                    check(current.active) {
+                        "统一守护会话已停止"
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                Log.e(TAG, "camera fall algorithm connection failed", error)
+                Log.e(TAG, "guardian session connection failed", error)
                 updateStatus(
                     status.value.copy(
                         cameraAlgorithmStatus = "unavailable",
                         cameraAlgorithmDetail =
-                            "跌倒预测服务连接失败，${retryDelay / 1_000} 秒后重试：${error.message}",
+                            "统一守护服务连接失败，${retryDelay / 1_000} 秒后重试：${error.message}",
                     )
                 )
                 delay(retryDelay)
@@ -281,11 +291,23 @@ class Ys7MonitorService : Service() {
         }
     }
 
-    private fun updateAlgorithmStatus(current: CameraMonitoringStatus) {
+    private fun updateGuardianStatus(current: GuardianSessionStatus) {
         updateStatus(
             status.value.copy(
-                cameraAlgorithmStatus = current.camera_algorithm_status,
-                cameraAlgorithmDetail = current.detail,
+                enabled = current.active,
+                cameraAlgorithmStatus = current.camera_analysis.state,
+                cameraAlgorithmDetail = current.camera_analysis.detail,
+                fraudMonitoringStatus = current.fraud_monitoring.state,
+                psychologyObservationStatus = current.psychology_observation.state,
+                radarWorkerStatus = current.radar_worker.state,
+                radarParticipationStatus = current.radar_participation.state,
+                fusionStatus = current.fusion.state,
+                detail = when (current.state) {
+                    "running" -> "摄像头、诈骗、心理与跌倒风险守护运行中"
+                    "degraded" -> "守护运行中，部分能力已安全降级"
+                    "starting" -> "统一风险分析会话启动中"
+                    else -> "持续守护未开启"
+                },
             )
         )
     }

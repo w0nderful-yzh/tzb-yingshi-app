@@ -168,22 +168,42 @@ private fun MonitorServiceCard(
                 Text(status.detail, style = MaterialTheme.typography.bodySmall)
             }
             Button(onClick = if (status.enabled) onStop else onStart) {
-                Text(if (status.enabled) "停止" else "开启")
+                Text(if (status.enabled) "停止守护" else "开始守护")
             }
         }
         if (status.enabled) {
             Spacer(Modifier.height(10.dp))
-            CapabilityRow(
-                "摄像头视频流",
-                cameraStreamStatusLabel(status.cameraStreamStatus),
-                capabilityStatusColor(status.cameraStreamStatus),
-            )
             CapabilityRow(
                 "Camera跌倒预测",
                 cameraAlgorithmStatusLabel(status.cameraAlgorithmStatus),
                 capabilityStatusColor(status.cameraAlgorithmStatus),
             )
             Text(status.cameraAlgorithmDetail, style = MaterialTheme.typography.bodySmall)
+            CapabilityRow(
+                "诈骗监听",
+                cameraAlgorithmStatusLabel(status.fraudMonitoringStatus),
+                capabilityStatusColor(status.fraudMonitoringStatus),
+            )
+            CapabilityRow(
+                "心理周期观察",
+                cameraAlgorithmStatusLabel(status.psychologyObservationStatus),
+                capabilityStatusColor(status.psychologyObservationStatus),
+            )
+            CapabilityRow(
+                "Radar Worker",
+                cameraAlgorithmStatusLabel(status.radarWorkerStatus),
+                capabilityStatusColor(status.radarWorkerStatus),
+            )
+            CapabilityRow(
+                "Radar参与当前会话",
+                cameraAlgorithmStatusLabel(status.radarParticipationStatus),
+                capabilityStatusColor(status.radarParticipationStatus),
+            )
+            CapabilityRow(
+                "Camera-led Fusion v2",
+                cameraAlgorithmStatusLabel(status.fusionStatus),
+                capabilityStatusColor(status.fusionStatus),
+            )
             CapabilityRow(
                 "实时告警",
                 if (status.alertsConnected) "已连接" else "重连中",
@@ -193,22 +213,15 @@ private fun MonitorServiceCard(
     }
 }
 
-private fun cameraStreamStatusLabel(status: String): String = when (status) {
-    "streaming" -> "直播中"
-    "connecting" -> "连接中"
-    "reconnecting" -> "重连中"
-    "error" -> "连接失败"
-    "stopped" -> "已停止"
-    else -> "不可用"
-}
-
 private fun cameraAlgorithmStatusLabel(status: String): String = when (status) {
     "running" -> "运行中"
+    "degraded" -> "降级运行"
     "starting" -> "启动中"
     "waiting_data" -> "等待视频数据"
     "stopping" -> "停止中"
     "error" -> "运行错误"
     "stopped" -> "已停止"
+    "unavailable" -> "不可用"
     else -> "不可用"
 }
 
@@ -258,8 +271,8 @@ private fun ProfileDeviceRow(device: Device) {
 private fun SettingsCard() {
     AppCard {
         Text("能力接入状态", style = MaterialTheme.typography.titleLarge)
-        CapabilityRow("诈骗风险预测", "运行中", SafeGreen)
-        CapabilityRow("跌倒风险预测", "运行中", SafeGreen)
+        CapabilityRow("诈骗风险预测", "已接入", SafeGreen)
+        CapabilityRow("跌倒风险预测", "已接入", SafeGreen)
         CapabilityRow("心理健康评估", "已接入", SafeGreen)
         Spacer(Modifier.height(8.dp))
         Text("萤石密钥仅保留在后端；事件证据按后端留存策略管理。",
