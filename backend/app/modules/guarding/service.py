@@ -121,9 +121,7 @@ class GuardianSessionService:
         )
         psychology = CapabilityStatus(
             state=(
-                LifecycleState.RUNNING
-                if self._psychology.active
-                else LifecycleState.UNAVAILABLE
+                LifecycleState.RUNNING if self._psychology.active else LifecycleState.UNAVAILABLE
             ),
             enabled=self._psychology.active,
             detail=(

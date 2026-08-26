@@ -124,9 +124,7 @@ class CameraLedEvidenceFusionV2Source(AlgorithmSourceModel):
     radar_score: float | None = Field(default=None, ge=0.0, le=1.0)
     radar_quality: float = Field(default=0.0, ge=0.0, le=1.0)
     radar_eligible: bool = False
-    radar_motion_evidence_strength: Literal["NONE", "WEAK", "STRONG", "UNKNOWN"] = (
-        "UNKNOWN"
-    )
+    radar_motion_evidence_strength: Literal["NONE", "WEAK", "STRONG", "UNKNOWN"] = "UNKNOWN"
     association_state: AlignmentAssociationState = "CALIBRATION_INVALID"
     sync_delta_ms: float | None = Field(default=None, ge=0.0)
     reason_codes: list[str] = Field(default_factory=list)

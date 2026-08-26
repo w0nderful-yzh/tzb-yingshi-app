@@ -45,9 +45,7 @@ def test_camera_monitoring_status_separates_stream_and_algorithm_state() -> None
 
 def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -> dict:
     fusion_mode = (
-        "CAMERA_RADAR_CONSISTENT"
-        if evidence_state == "CORROBORATED_HIGH"
-        else "CAMERA_ONLY"
+        "CAMERA_RADAR_CONSISTENT" if evidence_state == "CORROBORATED_HIGH" else "CAMERA_ONLY"
     )
     return {
         "camera": {
