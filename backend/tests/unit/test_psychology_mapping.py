@@ -1,5 +1,11 @@
+import pytest
+
 from app.modules.psychology.mapping import map_psychology_snapshot
-from app.modules.psychology.schemas import AssessmentState, SourceStatus
+from app.modules.psychology.schemas import (
+    AssessmentState,
+    PsychologyRiskLevel,
+    SourceStatus,
+)
 from app.modules.psychology.source_schemas import PsychologySourceSnapshot
 
 
@@ -20,7 +26,7 @@ def _completed_snapshot(score: float = 6.42) -> PsychologySourceSnapshot:
     )
 
 
-def test_completed_result_maps_to_shadow_observation_with_raw_reference_scores() -> None:
+def test_completed_result_maps_to_shadow_observation_with_reference_score_and_level() -> None:
     result = map_psychology_snapshot(_completed_snapshot())
     payload = result.model_dump(mode="json")
 
@@ -29,9 +35,8 @@ def test_completed_result_maps_to_shadow_observation_with_raw_reference_scores()
     assert result.operating_mode == "shadow"
     assert result.attention_level == "unknown"
     assert result.trend_state == "insufficient_history"
-    # Raw research-prototype regression outputs pass through unchanged,
-    # without threshold mapping or risk grading.
     assert result.estimated_phq8_score == 6.42
+    assert result.risk_level is PsychologyRiskLevel.NO_RISK
     assert result.segment_scores == [6.42]
     assert set(payload) == {
         "source_status",
@@ -44,6 +49,7 @@ def test_completed_result_maps_to_shadow_observation_with_raw_reference_scores()
         "review_status",
         "assessment_window",
         "estimated_phq8_score",
+        "risk_level",
         "segment_scores",
         "evidence_summary",
         "guidance",
@@ -52,6 +58,28 @@ def test_completed_result_maps_to_shadow_observation_with_raw_reference_scores()
         "latest_completed",
     }
     assert "抑郁" not in str(payload)
+
+
+@pytest.mark.parametrize(
+    ("score", "expected"),
+    [
+        (0.0, PsychologyRiskLevel.NO_RISK),
+        (9.9, PsychologyRiskLevel.NO_RISK),
+        (10.0, PsychologyRiskLevel.MILD),
+        (14.9, PsychologyRiskLevel.MILD),
+        (15.0, PsychologyRiskLevel.MODERATE),
+        (19.9, PsychologyRiskLevel.MODERATE),
+        (20.0, PsychologyRiskLevel.SEVERE),
+        (24.0, PsychologyRiskLevel.SEVERE),
+    ],
+)
+def test_completed_score_maps_to_daily_care_risk_level(
+    score: float,
+    expected: PsychologyRiskLevel,
+) -> None:
+    result = map_psychology_snapshot(_completed_snapshot(score=score))
+
+    assert result.risk_level is expected
 
 
 def test_processing_keeps_latest_completed_reference_visible() -> None:
@@ -78,6 +106,7 @@ def test_processing_keeps_latest_completed_reference_visible() -> None:
     assert result.assessment_state is AssessmentState.COLLECTING
     assert result.latest_completed is not None
     assert result.latest_completed.estimated_phq8_score == 6.42
+    assert result.latest_completed.risk_level is PsychologyRiskLevel.NO_RISK
     assert result.latest_completed.updated_at is not None
 
 

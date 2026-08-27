@@ -14,6 +14,7 @@ data class PsychologyCompletedReference(
     val data_quality: String = "limited",
     val review_status: String = "required",
     val estimated_phq8_score: Double? = null,
+    val risk_level: String = "unknown",
     val evidence_summary: String = "上一轮参考分析已完成",
     val guidance: String = "结果仅供日常关怀参考",
     val updated_at: String? = null,
@@ -31,8 +32,9 @@ data class PsychologyOverview(
     val source_modality: String = "camera_behavior",
     val review_status: String = "not_available",
     val assessment_window: PsychologyAssessmentWindow? = null,
-    // 研究原型回归输出的原始参考值：非诊断、非分级
+    // 研究原型回归输出及其日常关怀辅助等级，均不构成医疗诊断
     val estimated_phq8_score: Double? = null,
+    val risk_level: String = "unknown",
     val segment_scores: List<Double> = emptyList(),
     val evidence_summary: String = "心理健康评估服务暂不可用",
     val guidance: String = "结果仅供日常关怀参考",

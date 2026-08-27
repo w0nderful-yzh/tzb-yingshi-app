@@ -134,6 +134,7 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
             )
+            DataRow("辅助风险程度", psychologyRiskLevelLabel(overview.risk_level))
         }
         Spacer(Modifier.height(10.dp))
         if (overview.source_modality == "camera_behavior") {
@@ -183,6 +184,7 @@ private fun PreviousCompletedContent(completed: PsychologyCompletedReference) {
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
+        DataRow("辅助风险程度", psychologyRiskLevelLabel(completed.risk_level))
     }
     Text(completed.evidence_summary, style = MaterialTheme.typography.bodyMedium)
     DataRow("数据质量", dataQualityLabel(completed.data_quality))
@@ -226,6 +228,14 @@ private fun dataQualityLabel(quality: String): String = when (quality) {
     "limited" -> "有限"
     "insufficient" -> "不足"
     else -> "未知"
+}
+
+private fun psychologyRiskLevelLabel(level: String): String = when (level) {
+    "no_risk" -> "暂时无风险"
+    "mild" -> "轻度风险"
+    "moderate" -> "中度风险"
+    "severe" -> "重度风险"
+    else -> "暂无法判断"
 }
 
 /** 解析 ISO-8601（含毫秒与 Z），转本地时区显示；解析失败时原样返回。 */

@@ -9,6 +9,7 @@ from app.modules.psychology.schemas import (
     CompletedAssessmentReference,
     DataQuality,
     PsychologyOverview,
+    PsychologyRiskLevel,
     ReviewStatus,
     SourceStatus,
 )
@@ -96,6 +97,18 @@ def _valid_completed_result(snapshot: PsychologySourceSnapshot) -> bool:
     )
 
 
+def _risk_level_for_score(score: float | None) -> PsychologyRiskLevel:
+    if score is None:
+        return PsychologyRiskLevel.UNKNOWN
+    if score < 10.0:
+        return PsychologyRiskLevel.NO_RISK
+    if score < 15.0:
+        return PsychologyRiskLevel.MILD
+    if score < 20.0:
+        return PsychologyRiskLevel.MODERATE
+    return PsychologyRiskLevel.SEVERE
+
+
 def _overview(
     *,
     source_status: SourceStatus,
@@ -116,6 +129,7 @@ def _overview(
         review_status=review_status,
         assessment_window=window,
         estimated_phq8_score=score,
+        risk_level=_risk_level_for_score(score),
         segment_scores=segment_scores or [],
         evidence_summary=summary,
         guidance=_GUIDANCE,
@@ -140,6 +154,7 @@ def _completed_reference(
         data_quality=DataQuality.LIMITED,
         review_status=ReviewStatus.REQUIRED,
         estimated_phq8_score=snapshot.estimated_phq8_score,
+        risk_level=_risk_level_for_score(snapshot.estimated_phq8_score),
         evidence_summary="上一轮视觉行为资料已完成参考分析",
         guidance=_GUIDANCE,
         updated_at=snapshot.completed_at,

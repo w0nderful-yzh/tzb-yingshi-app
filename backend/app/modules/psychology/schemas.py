@@ -32,6 +32,14 @@ class ReviewStatus(StrEnum):
     NOT_AVAILABLE = "not_available"
 
 
+class PsychologyRiskLevel(StrEnum):
+    UNKNOWN = "unknown"
+    NO_RISK = "no_risk"
+    MILD = "mild"
+    MODERATE = "moderate"
+    SEVERE = "severe"
+
+
 class AssessmentWindow(BaseModel):
     started_at: datetime
     ended_at: datetime
@@ -42,6 +50,7 @@ class CompletedAssessmentReference(BaseModel):
     data_quality: DataQuality
     review_status: ReviewStatus
     estimated_phq8_score: float
+    risk_level: PsychologyRiskLevel
     evidence_summary: str
     guidance: str
     updated_at: datetime
@@ -58,9 +67,10 @@ class PsychologyOverview(BaseModel):
     source_modality: Literal["camera_behavior"] = "camera_behavior"
     review_status: ReviewStatus
     assessment_window: AssessmentWindow | None = None
-    # Raw research-prototype regression outputs, passed through unchanged.
-    # They are reference values only: no threshold mapping, no risk grading.
+    # Raw research-prototype regression outputs are passed through unchanged.
+    # The derived level is a non-diagnostic daily-care aid only.
     estimated_phq8_score: float | None = None
+    risk_level: PsychologyRiskLevel = PsychologyRiskLevel.UNKNOWN
     segment_scores: list[float] = Field(default_factory=list)
     evidence_summary: str
     guidance: str
