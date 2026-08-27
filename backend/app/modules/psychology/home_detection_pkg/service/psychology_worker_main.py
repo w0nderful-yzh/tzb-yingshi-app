@@ -375,24 +375,36 @@ def build_clip_from_csv(
 # ---------- MCCL 推理（lazy import，避免无 torch 环境 import 本模块失败） ----------
 
 _mccl_models = None
+_mccl_requested_device = None
 
 
-def _ensure_mccl_models():
+def _ensure_mccl_models(requested_device: str = "cpu"):
     """加载 MCCL 模型（缓存一次）。OpenSDK 模式必须在取流前调用：
     先载 torch，避免 OpenSDK 已载入的 DLL 与 torch 的 c10.dll 冲突。"""
-    global _mccl_models
+    global _mccl_models, _mccl_requested_device
     if _mccl_models is not None:
+        if requested_device != _mccl_requested_device:
+            raise RuntimeError(
+                "MCCL models are already loaded on "
+                f"{_mccl_requested_device}; cannot switch to {requested_device} in-process"
+            )
         return _mccl_models
     import mccl_home_inference as mi
 
-    args = mi.build_args()
+    args = mi.build_args(requested_device)
     model1, model2, regressor, device = mi.load_models(args, mi.CKPT_DIR)
     _mccl_models = (args, model1, model2, regressor, device)
+    _mccl_requested_device = requested_device
+    log(
+        "MCCL device resolved: "
+        f"requested_device={requested_device} effective_device={device} "
+        f"cuda_available={mi.torch.cuda.is_available()} XGB_device=cpu"
+    )
     return _mccl_models
 
 
-def run_mccl(accumulated: list[tuple]) -> float:
-    args, model1, model2, regressor, device = _ensure_mccl_models()
+def run_mccl(accumulated: list[tuple], requested_device: str = "cpu") -> float:
+    args, model1, model2, regressor, device = _ensure_mccl_models(requested_device)
     import mccl_home_inference as mi
     import torch
 
@@ -488,11 +500,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ys7-verify-code", default=os.environ.get("APP_YS7_DEVICE_VERIFY_CODE", ""),
                         help="设备验证码；未加密设备可留空（SDK 端用占位值）")
     parser.add_argument("--stream-retry-attempts", type=int, default=3)
+    parser.add_argument("--mccl-device", default=os.environ.get("PSYCH_MCCL_DEVICE", "cpu"),
+                        help="MCCL device，默认 cpu；GPU 必须显式指定 cuda:0")
     parser.add_argument("--loop", action="store_true")
     return parser.parse_args()
 
 
 def run_worker(args: argparse.Namespace) -> int:
+    args.mccl_device = args.mccl_device.strip().lower()
     if args.clips_per_assessment != 7:
         raise SystemExit("--clips-per-assessment 必须是 7（MCCL 每样本恰好 7 个 clip）")
     if args.openface_timeout_seconds <= 0:
@@ -527,7 +542,7 @@ def run_worker(args: argparse.Namespace) -> int:
     if mode == "opensdk":
         # 必须先于 OpenSDK 加载 torch，否则 OpenSDK 的 DLL 会让 torch c10.dll 加载失败
         try:
-            _ensure_mccl_models()
+            _ensure_mccl_models(args.mccl_device)
             log("MCCL 模型已预热（先于 OpenSDK 加载，避免 DLL 冲突）")
         except Exception as exc:  # noqa: BLE001
             log(f"MCCL 模型预热失败，评估时会记入 failed 快照: {type(exc).__name__}: {exc}")
@@ -625,7 +640,7 @@ def run_worker(args: argparse.Namespace) -> int:
             )
         else:
             try:
-                score = run_mccl(accumulated)
+                score = run_mccl(accumulated, args.mccl_device)
             except Exception as exc:  # noqa: BLE001
                 log(f"== 模型推理失败 -> failed: {type(exc).__name__}: {exc} ==")
                 store.write(

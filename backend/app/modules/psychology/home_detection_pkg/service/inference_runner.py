@@ -34,6 +34,7 @@ def run_inference(
     store_root: Path = DEFAULT_STORE_ROOT,
     window_started_at: datetime | None = None,
     window_ended_at: datetime | None = None,
+    mccl_device: str = "cpu",
 ) -> PsychologyAssessmentSnapshot:
     if not video.is_file():
         raise FileNotFoundError(video)
@@ -44,6 +45,8 @@ def run_inference(
         str(video),
         "--outdir",
         str(output_root),
+        "--mccl-device",
+        mccl_device,
     ]
     completed = subprocess.run(
         command,
@@ -155,6 +158,7 @@ def main() -> None:
     parser.add_argument("--store-root", type=Path, default=DEFAULT_STORE_ROOT)
     parser.add_argument("--window-started-at")
     parser.add_argument("--window-ended-at")
+    parser.add_argument("--mccl-device", default="cpu")
     args = parser.parse_args()
     snapshot = run_inference(
         video=args.video,
@@ -163,6 +167,7 @@ def main() -> None:
         store_root=args.store_root,
         window_started_at=_parse_datetime(args.window_started_at),
         window_ended_at=_parse_datetime(args.window_ended_at),
+        mccl_device=args.mccl_device,
     )
     print(snapshot.model_dump_json(indent=2))
     if snapshot.status == "failed":

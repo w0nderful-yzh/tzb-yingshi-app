@@ -169,7 +169,7 @@ class Settings(BaseSettings):
     fall_inference_runtime_dir: Path = BACKEND_DIR / "runtime" / "fall_inference"
     fall_inference_timeout_seconds: int = Field(default=900, ge=30, le=3600)
     fall_inference_max_upload_mb: int = Field(default=250, ge=1, le=2048)
-    fall_inference_device: str = "cpu"
+    fall_inference_device: str = "cuda:0"
     fall_inference_live_protocol: int = Field(default=2, ge=2, le=4)
     fall_inference_live_quality: int = Field(default=2, ge=1, le=2)
     fall_inference_live_capture_seconds: int = Field(default=10, ge=6, le=60)

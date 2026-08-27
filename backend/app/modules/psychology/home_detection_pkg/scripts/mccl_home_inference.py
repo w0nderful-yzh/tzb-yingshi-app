@@ -7,6 +7,8 @@ import os
 import sys
 import glob
 import pickle
+import argparse
+import re
 import warnings
 import numpy as np
 import torch
@@ -29,10 +31,29 @@ NUM_CLIPS_PER_SAMPLE = 7                  # 每7个clip拼一个样本
 CLIP_NAMES = ['kps', 'gaze', 'pose', 'AUs']
 
 
-def build_args():
+def resolve_device(requested_device='cpu'):
+    requested = requested_device.strip().lower()
+    if requested == 'cpu':
+        return 'cpu', []
+    match = re.fullmatch(r'cuda:(\d+)', requested)
+    if match is None:
+        raise ValueError("MCCL device must be 'cpu' or an explicit CUDA device such as 'cuda:0'")
+    if not torch.cuda.is_available():
+        raise RuntimeError(f'MCCL requested {requested}, but CUDA is unavailable')
+    device_index = int(match.group(1))
+    device_count = torch.cuda.device_count()
+    if device_index >= device_count:
+        raise RuntimeError(
+            f'MCCL requested {requested}, but only {device_count} CUDA device(s) are available'
+        )
+    return requested, [device_index]
+
+
+def build_args(device='cpu'):
     args = Options().initialize().parse_args([])
-    args.gpu_ids = [0] if torch.cuda.is_available() else []
-    args.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    effective_device, gpu_ids = resolve_device(device)
+    args.gpu_ids = gpu_ids
+    args.device = effective_device
     return args
 
 
@@ -73,11 +94,13 @@ def infer_7clips(model1, model2, regressor, clip_feats, args, device):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print('用法: python mccl_home_inference.py <clip_dir> [prefix]')
-        sys.exit(1)
-    clip_dir = sys.argv[1]
-    prefix = sys.argv[2] if len(sys.argv) > 2 else None
+    parser = argparse.ArgumentParser(description='MCCL 居家心理评估推理')
+    parser.add_argument('clip_dir')
+    parser.add_argument('prefix', nargs='?')
+    parser.add_argument('--device', default=os.environ.get('PSYCH_MCCL_DEVICE', 'cpu'))
+    cli_args = parser.parse_args()
+    clip_dir = cli_args.clip_dir
+    prefix = cli_args.prefix
     if prefix is None:
         kps_files = sorted(glob.glob(os.path.join(clip_dir, '*_kps.npy')))
         if not kps_files:
@@ -86,9 +109,14 @@ def main():
         prefix = os.path.basename(kps_files[0]).rsplit('-', 1)[0]
 
     print(f'推理 clip 目录: {clip_dir}, prefix: {prefix}')
-    args = build_args()
+    requested_device = cli_args.device.strip().lower()
+    args = build_args(requested_device)
     model1, model2, regressor, device = load_models(args, CKPT_DIR)
-    print(f'模型加载完成, device={args.device}, XGB特征数={getattr(regressor, "n_features_in_", "?")}')
+    print(
+        f'模型加载完成, requested_device={requested_device}, '
+        f'effective_device={args.device}, cuda_available={torch.cuda.is_available()}, '
+        f'XGB_device=cpu, XGB特征数={getattr(regressor, "n_features_in_", "?")}'
+    )
 
     kps_files = sorted(glob.glob(os.path.join(clip_dir, f'{prefix}-*_kps.npy')))
     if not kps_files:

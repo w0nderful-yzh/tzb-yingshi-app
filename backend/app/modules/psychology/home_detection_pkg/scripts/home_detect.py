@@ -55,6 +55,8 @@ def main():
     parser.add_argument('video', help='输入视频路径')
     parser.add_argument('--outdir', default=os.path.join(os.path.dirname(BASE), 'home_out'),
                         help='输出目录')
+    parser.add_argument('--mccl-device', default=os.environ.get('PSYCH_MCCL_DEVICE', 'cpu'),
+                        help="MCCL device，默认 cpu；GPU 必须显式指定 cuda:0")
     args = parser.parse_args()
 
     video = args.video
@@ -103,7 +105,7 @@ def main():
 
     # ---------- 4. MCCL 推理 ----------
     if not run(
-        [PYTHON, MCCL_INFER, clip_dir, name],
+        [PYTHON, MCCL_INFER, clip_dir, name, '--device', args.mccl_device],
         '4/4 MCCL 抑郁推理',
         echo_output=True,
     ):

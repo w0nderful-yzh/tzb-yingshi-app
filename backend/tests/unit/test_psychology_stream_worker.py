@@ -215,3 +215,24 @@ class TestSnapshotBuilding:
         )
         assert snapshot.status == "insufficient_data"
         assert snapshot.clip_count == 3
+
+
+class TestMcclDeviceConfiguration:
+    def test_worker_defaults_mccl_to_cpu(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PSYCH_MCCL_DEVICE", raising=False)
+        monkeypatch.setattr(sys, "argv", ["psychology_worker_main", "--subject-key", "elder-001"])
+
+        args = worker.parse_args()
+
+        assert args.mccl_device == "cpu"
+
+    def test_worker_accepts_explicit_mccl_device_from_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("PSYCH_MCCL_DEVICE", "cuda:0")
+        monkeypatch.setattr(sys, "argv", ["psychology_worker_main", "--subject-key", "elder-001"])
+
+        args = worker.parse_args()
+
+        assert args.mccl_device == "cuda:0"
