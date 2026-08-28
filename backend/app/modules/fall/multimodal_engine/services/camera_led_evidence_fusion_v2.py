@@ -53,23 +53,19 @@ class CameraLedEvidenceFusionV2:
         reasons = [
             "REALTIME_ACTIVE",
             "CAMERA_LED_EVIDENCE_FUSION_V2",
-            "RADAR_EVIDENCE_NOT_WEIGHTED_SCORE",
+            "RADAR_EVIDENCE_STATE_ONLY",
             *alignment.reason_codes,
             *eligibility.reason_codes,
         ]
         strength = (
-            associated.radar_motion_evidence_strength
-            if associated is not None
-            else "UNKNOWN"
+            associated.radar_motion_evidence_strength if associated is not None else "UNKNOWN"
         )
         if associated is not None:
             # The associated motion assessor remains an internal shadow
             # component, while this v2 projection is now the active app
             # result. Preserve its evidence reasons without leaking the old
             # pipeline-level SHADOW_ONLY label into the active contract.
-            reasons.extend(
-                code for code in associated.reason_codes if code != "SHADOW_ONLY"
-            )
+            reasons.extend(code for code in associated.reason_codes if code != "SHADOW_ONLY")
 
         if not camera.available or camera.camera_score is None:
             return self._result(
@@ -121,7 +117,9 @@ class CameraLedEvidenceFusionV2:
 
         if not eligibility.eligible:
             reason_set = set(eligibility.reason_codes)
-            is_conflict = bool(reason_set.intersection({"TRACK_MISMATCH", "TRACK_CONFLICT", "MULTIPLE_CANDIDATES"}))
+            is_conflict = bool(
+                reason_set.intersection({"TRACK_MISMATCH", "TRACK_CONFLICT", "MULTIPLE_CANDIDATES"})
+            )
             return self._result(
                 camera,
                 radar,
@@ -154,11 +152,7 @@ class CameraLedEvidenceFusionV2:
             mode = "CAMERA_RADAR_CONSISTENT"
             reasons.append("CAMERA_RADAR_NORMAL_EVIDENCE_CONSISTENT")
         elif evidence_state == "CORROBORATED_HIGH":
-            mode = (
-                "CAMERA_RADAR_CONSISTENT"
-                if strength == "STRONG"
-                else "RADAR_SUPPORTED"
-            )
+            mode = "CAMERA_RADAR_CONSISTENT" if strength == "STRONG" else "RADAR_SUPPORTED"
             reasons.append("CAMERA_RISK_SUPPORTED_BY_ASSOCIATED_RADAR_MOTION")
         elif evidence_state == "CORROBORATED_WATCH":
             mode = "RADAR_SUPPORTED"
@@ -224,9 +218,7 @@ class CameraLedEvidenceFusionV2:
             radar_score=radar.radar_score,
             camera_quality=camera.camera_quality,
             radar_quality=(
-                eligibility.radar_quality
-                if eligibility.assessed
-                else radar.radar_quality
+                eligibility.radar_quality if eligibility.assessed else radar.radar_quality
             ),
             radar_eligible=eligibility.eligible,
             radar_motion_evidence_strength=strength,

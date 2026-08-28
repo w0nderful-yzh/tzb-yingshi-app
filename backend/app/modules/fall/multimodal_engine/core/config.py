@@ -6,21 +6,16 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
-
 ENGINE_DIR = Path(__file__).resolve().parents[1]
 # Keep this alias while the migrated engine is made repository-native.  All
 # runtime output stays below the engine and is ignored by Git.
 BACKEND_DIR = ENGINE_DIR
-REPOSITORY_DIR = (
-    ENGINE_DIR.parents[4] if len(ENGINE_DIR.parents) > 4 else ENGINE_DIR.parent
-)
+REPOSITORY_DIR = ENGINE_DIR.parents[4] if len(ENGINE_DIR.parents) > 4 else ENGINE_DIR.parent
 # The competition workspace still owns large Camera assets and local SDKs.
 # Every path remains overridable through the existing Settings environment
 # fields when the repository is deployed on another machine.
 WORKSPACE_DIR = (
-    REPOSITORY_DIR.parents[1]
-    if len(REPOSITORY_DIR.parents) > 1
-    else REPOSITORY_DIR.parent
+    REPOSITORY_DIR.parents[1] if len(REPOSITORY_DIR.parents) > 1 else REPOSITORY_DIR.parent
 )
 
 
@@ -68,74 +63,33 @@ class Settings(BaseSettings):
     radar_risk_events_enabled: bool = True
     radar_formal_predictions_enabled: bool = False
 
-    # Phase-1 multimodal decision layer. These values affect only the new
-    # fusion score and never alter either single-modality model.
-    fusion_camera_weight: float = Field(default=0.6, gt=0, le=1)
-    fusion_radar_weight: float = Field(default=0.4, gt=0, le=1)
+    # Camera-led multimodal decision layer. Radar supplies associated motion
+    # evidence and never replaces the BioSTGCN Camera score.
     fusion_sync_tolerance_seconds: float = Field(default=2.0, gt=0, le=30)
-    fusion_medium_threshold: float = Field(default=0.35, gt=0, lt=1)
-    fusion_high_threshold: float = Field(default=0.65, gt=0, lt=1)
-    fusion_default_method: Literal[
-        "fixed_weighted",
-        "quality_weighted",
-        "radar_quality_adaptive",
-    ] = (
-        "fixed_weighted"
-    )
-    fusion_ema_alpha: float = Field(default=0.35, gt=0, le=1)
-    fusion_watch_exit_threshold: float = Field(default=0.25, ge=0, lt=1)
-    fusion_high_exit_threshold: float = Field(default=0.50, ge=0, lt=1)
-    fusion_imminent_threshold: float = Field(default=0.80, gt=0, le=1)
-    fusion_watch_confirmation_windows: int = Field(default=2, ge=1, le=20)
-    fusion_high_confirmation_windows: int = Field(default=3, ge=1, le=20)
-    fusion_normal_confirmation_windows: int = Field(default=2, ge=1, le=20)
-    fusion_conflict_score_gap: float = Field(default=0.45, gt=0, le=1)
-    fusion_minimum_modality_quality: float = Field(default=0.25, ge=0, le=1)
-    # Radar Eligibility Gate. It changes only whether Radar may enter Fusion;
-    # it does not alter Camera, TCN, checkpoints or the default 0.6/0.4 weights.
+    fusion_v2_minimum_camera_quality: float = Field(default=0.25, ge=0, le=1)
+    # Radar Eligibility Gate controls whether associated Radar evidence may
+    # influence the state-level interpretation.
     fusion_radar_eligibility_enabled: bool = True
-    fusion_radar_eligibility_history_seconds: float = Field(
-        default=1.2, gt=0, le=10
-    )
-    fusion_radar_eligibility_minimum_track_samples: int = Field(
-        default=2, ge=2, le=30
-    )
-    fusion_radar_eligibility_minimum_point_count: int = Field(
-        default=3, ge=1, le=200
-    )
-    fusion_radar_eligibility_reference_point_count: int = Field(
-        default=20, ge=1, le=500
-    )
-    fusion_radar_eligibility_minimum_track_stability: float = Field(
-        default=0.60, ge=0, le=1
-    )
-    fusion_radar_eligibility_minimum_quality: float = Field(
-        default=0.25, ge=0, le=1
-    )
-    fusion_radar_eligibility_maximum_velocity_jump_mps: float = Field(
-        default=1.5, gt=0, le=20
-    )
-    fusion_radar_eligibility_height_tolerance_m: float = Field(
-        default=0.50, gt=0, le=5
-    )
+    fusion_radar_eligibility_history_seconds: float = Field(default=1.2, gt=0, le=10)
+    fusion_radar_eligibility_minimum_track_samples: int = Field(default=2, ge=2, le=30)
+    fusion_radar_eligibility_minimum_point_count: int = Field(default=3, ge=1, le=200)
+    fusion_radar_eligibility_reference_point_count: int = Field(default=20, ge=1, le=500)
+    fusion_radar_eligibility_minimum_track_stability: float = Field(default=0.60, ge=0, le=1)
+    fusion_radar_eligibility_minimum_quality: float = Field(default=0.25, ge=0, le=1)
+    fusion_radar_eligibility_maximum_velocity_jump_mps: float = Field(default=1.5, gt=0, le=20)
+    fusion_radar_eligibility_height_tolerance_m: float = Field(default=0.50, gt=0, le=5)
     fusion_shadow_log_enabled: bool = True
     fusion_shadow_log_path: Path = BACKEND_DIR / "runtime" / "fusion_shadow.jsonl"
     fusion_shadow_log_max_mb: int = Field(default=20, ge=1, le=1024)
     fusion_shadow_log_backup_count: int = Field(default=5, ge=1, le=50)
     fusion_shadow_sampler_enabled: bool = True
     fusion_shadow_sample_interval_seconds: float = Field(default=0.5, gt=0, le=60)
-    # Shadow-only temporal/association experiment. It cannot create alerts and
-    # does not change Fixed Fusion, either modality model or score thresholds.
-    fusion_temporal_window_seconds: float = Field(default=2.0, gt=0, le=10)
-    fusion_temporal_confirmation_windows: int = Field(default=2, ge=1, le=20)
     # Camera-led TI tracking evidence augmentation. These are configurable
     # shadow evidence gates, not changes to BioSTGCN/TCN/Fusion thresholds.
     fusion_associated_window_seconds: float = Field(default=1.2, gt=0, le=10)
     fusion_associated_minimum_track_samples: int = Field(default=2, ge=2, le=30)
     fusion_associated_minimum_point_count: int = Field(default=3, ge=1, le=200)
-    fusion_associated_minimum_track_stability: float = Field(
-        default=0.60, ge=0, le=1
-    )
+    fusion_associated_minimum_track_stability: float = Field(default=0.60, ge=0, le=1)
     fusion_associated_weak_vertical_velocity_mps: float = -0.10
     fusion_associated_strong_vertical_velocity_mps: float = -0.35
     fusion_associated_weak_height_drop_m: float = -0.05
@@ -144,27 +98,9 @@ class Settings(BaseSettings):
     fusion_alignment_calibration_path: Path = (
         ENGINE_DIR / "calibrations" / "living_room_grid9_shadow_v0.json"
     )
-    # Formal FusionFinding persistence stays disabled until independently validated.
-    fusion_risk_events_enabled: bool = False
-    fusion_offline_replay_preview_path: Path = (
-        WORKSPACE_DIR
-        / "摔倒预测多模态"
-        / "evidence_replay"
-        / "outputs"
-        / "phase15_complete"
-        / "evidence_preview.json"
-    )
-
-    fall_inference_project_dir: Path = (
-        WORKSPACE_DIR / "摔倒预测模块" / "修改" / "MCF_LE2I_Final"
-    )
+    fall_inference_project_dir: Path = WORKSPACE_DIR / "摔倒预测模块" / "修改" / "MCF_LE2I_Final"
     fall_inference_python: Path = (
-        WORKSPACE_DIR
-        / "摔倒预测模块"
-        / "修改"
-        / ".venv-rtmpose-full"
-        / "Scripts"
-        / "python.exe"
+        WORKSPACE_DIR / "摔倒预测模块" / "修改" / ".venv-rtmpose-full" / "Scripts" / "python.exe"
     )
     fall_inference_runtime_dir: Path = BACKEND_DIR / "runtime" / "fall_inference"
     fall_inference_timeout_seconds: int = Field(default=900, ge=30, le=3600)
@@ -184,17 +120,11 @@ class Settings(BaseSettings):
         le=300,
     )
     fall_live_monitor_enabled: bool = False
-    fall_live_source_mode: Literal[
-        "ezviz_opensdk", "ezviz_standard", "browser_capture"
-    ] = (
+    fall_live_source_mode: Literal["ezviz_opensdk", "ezviz_standard", "browser_capture"] = (
         "ezviz_opensdk"
     )
     fall_live_ezviz_opensdk_root: Path = (
-        WORKSPACE_DIR
-        / "tmp"
-        / "ezviz-sdk"
-        / "extracted"
-        / "EZPCOpenSDK_v5.13.1_build20250714"
+        WORKSPACE_DIR / "tmp" / "ezviz-sdk" / "extracted" / "EZPCOpenSDK_v5.13.1_build20250714"
     )
     fall_live_ezviz_opensdk_stream_type: int = Field(default=2, ge=1, le=2)
     # EZUIKit capturePicture is a snapshot API rather than a decoded 30 FPS

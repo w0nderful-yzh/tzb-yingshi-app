@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 from collections import Counter
 from datetime import datetime
-import json
 from pathlib import Path
-import re
 from typing import Any
-
 
 RISK_STATES = {"WATCH", "HIGH", "IMMINENT"}
 
@@ -90,13 +89,10 @@ def compare(
     paths: dict[str, list[str]] = {
         "camera_only": [],
         "radar_only": [],
-        "fixed_fusion": [],
-        "temporal_associated_recorded": [],
-        "alignment_gated_temporal_counterfactual": [],
+        "camera_led_multimodal": [],
     }
     alignment_states: Counter[str] = Counter()
     joined = 0
-    score_changed = 0
     for row in _rows(fusion_log):
         camera_value = row.get("camera_source_timestamp")
         radar_value = row.get("radar_source_timestamp")
@@ -106,8 +102,10 @@ def compare(
         radar_time = _time(str(radar_value))
         sample = min(
             alignment_samples,
-            key=lambda item: abs((item["camera_time"] - camera_time).total_seconds())
-            + abs((item["radar_time"] - radar_time).total_seconds()),
+            key=lambda item: (
+                abs((item["camera_time"] - camera_time).total_seconds())
+                + abs((item["radar_time"] - radar_time).total_seconds())
+            ),
         )
         camera_delta = abs((sample["camera_time"] - camera_time).total_seconds()) * 1000
         radar_delta = abs((sample["radar_time"] - radar_time).total_seconds()) * 1000
@@ -117,33 +115,19 @@ def compare(
         risk = row.get("risk_state") or {}
         camera_state = str(risk.get("camera") or row.get("camera_state") or "UNKNOWN")
         radar_state = str(risk.get("radar") or row.get("radar_state") or "UNKNOWN")
-        fixed_state = str(
-            risk.get("fusion") or row.get("stable_fusion_state") or "UNKNOWN"
+        camera_led = row.get("camera_led_evidence_fusion_v2") or {}
+        multimodal_state = str(
+            risk.get("multimodal") or camera_led.get("camera_led_state") or "UNKNOWN"
         )
-        temporal = row.get("temporal_associated_fusion") or {}
-        temporal_state = str(temporal.get("fusion_state") or "UNKNOWN")
         alignment_state = str(sample["alignment"].get("association_state") or "CALIBRATION_INVALID")
         alignment_states[alignment_state] += 1
 
-        gated_state = temporal_state
-        if alignment_state in {"TRACK_CONFLICT", "MULTIPLE_CANDIDATES"}:
-            camera_risk = _normalize("camera_only", camera_state) in RISK_STATES
-            radar_risk = _normalize("radar_only", radar_state) in RISK_STATES
-            gated_state = "WATCH" if camera_risk or radar_risk else "UNKNOWN"
-        elif alignment_state != "MATCHED" and temporal_state in {"HIGH", "IMMINENT"}:
-            gated_state = "WATCH"
-
         paths["camera_only"].append(camera_state)
         paths["radar_only"].append(radar_state)
-        paths["fixed_fusion"].append(fixed_state)
-        paths["temporal_associated_recorded"].append(temporal_state)
-        paths["alignment_gated_temporal_counterfactual"].append(gated_state)
-        # Alignment is a state gate only; score equality is an explicit invariant.
-        if row.get("raw_fusion_score") != temporal.get("fusion_score"):
-            score_changed += 1
+        paths["camera_led_multimodal"].append(multimodal_state)
 
     return {
-        "schema_version": "alignment_gated_fusion_comparison_v1",
+        "schema_version": "camera_led_alignment_comparison_v1",
         "source": {
             "fusion_log": str(fusion_log.resolve()),
             "sync_pairs": str(sync_pairs.resolve()),
@@ -156,18 +140,19 @@ def compare(
         },
         "alignment_state_counts_on_joined_rows": dict(alignment_states),
         "paths": {name: _metrics(name, states) for name, states in paths.items()},
-        "fixed_score_vs_temporal_readout_mismatch_count": score_changed,
         "interpretation": {
-            "comparison_type": "UNLABELLED_SAME_SESSION_COUNTERFACTUAL_STATE_GATE",
+            "comparison_type": "UNLABELLED_SAME_SESSION_PATH_OBSERVATION",
             "can_measure_false_alarm_or_recall": False,
-            "alignment_changes_fixed_fusion": False,
-            "guardrail": "This comparison measures availability/state behavior only; it cannot establish accuracy improvement without event labels.",
+            "guardrail": (
+                "This comparison measures availability/state behavior only; "
+                "it cannot establish accuracy improvement without event labels."
+            ),
         },
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Compare alignment-gated shadow state effects")
+    parser = argparse.ArgumentParser(description="Compare Camera-led alignment states")
     parser.add_argument("--fusion-log", type=Path, required=True)
     parser.add_argument("--sync-pairs", type=Path, required=True)
     parser.add_argument("--alignment-evidence", type=Path, required=True)

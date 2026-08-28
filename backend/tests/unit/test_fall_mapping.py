@@ -109,8 +109,6 @@ def camera_payload(*, evidence_state: str, association_state: str = "MATCHED") -
             "reason_codes": ["DEBUG_ONLY"],
         },
         "timestamp": "2026-08-15T10:00:01+08:00",
-        "fusion": {"fusion_score": 0.99, "method": "fixed_weighted"},
-        "temporal_associated_fusion": {"fusion_score": 0.98},
     }
 
 

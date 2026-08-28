@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import timedelta
+from pathlib import Path
 
 from app.modules.fall.multimodal_engine.schemas.fall_live import (
     CameraAlignmentSnapshot,
@@ -12,18 +12,23 @@ from app.modules.fall.multimodal_engine.schemas.fall_live import (
     FallLiveState,
     FallLiveStatusResponse,
 )
-from app.modules.fall.multimodal_engine.schemas.multimodal import AlignedPersonEvidence, CameraEvidence, RadarEvidence
-from app.modules.fall.multimodal_engine.schemas.radar import RadarAlignmentEvidencePayload, RadarStatusResponse
-from app.modules.fall.multimodal_engine.services.camera_radar_alignment import (
-    CameraRadarAlignmentAdapter,
-    RadarTrackEvidenceBuffer,
+from app.modules.fall.multimodal_engine.schemas.multimodal import (
+    AlignedPersonEvidence,
+    CameraEvidence,
+    RadarEvidence,
+)
+from app.modules.fall.multimodal_engine.schemas.radar import (
+    RadarAlignmentEvidencePayload,
+    RadarStatusResponse,
 )
 from app.modules.fall.multimodal_engine.services.alignment_aware_risk_augmentation import (
     AlignmentAwareRiskAugmentation,
 )
-from app.modules.fall.multimodal_engine.services.multimodal_fusion import MultimodalFusionService
-from app.modules.fall.multimodal_engine.services.temporal_associated_fusion import TemporalAssociatedFusion
-from app.modules.fall.multimodal_engine.tests.test_multimodal_fusion import NOW, _UnusedProvider
+from app.modules.fall.multimodal_engine.services.camera_radar_alignment import (
+    CameraRadarAlignmentAdapter,
+    RadarTrackEvidenceBuffer,
+)
+from app.modules.fall.multimodal_engine.tests.test_multimodal_fusion import NOW
 
 
 def _calibration(path: Path) -> None:
@@ -31,9 +36,7 @@ def _calibration(path: Path) -> None:
         json.dumps(
             {
                 "calibration_version": "unit_shadow_v0",
-                "mapping": {
-                    "matrix_2x3": [[100.0, 0.0, 500.0], [0.0, -100.0, 800.0]]
-                },
+                "mapping": {"matrix_2x3": [[100.0, 0.0, 500.0], [0.0, -100.0, 800.0]]},
                 "valid_radar_region_xy_m": {
                     "x_min": -1.0,
                     "x_max": 1.0,
@@ -117,7 +120,7 @@ class CameraRadarAlignmentAdapterTest(unittest.TestCase):
             )
         return RadarStatusResponse(online=True, alignment_evidence=targets)
 
-    def test_matches_one_track_without_affecting_fixed_fusion(self) -> None:
+    def test_matches_one_track_for_camera_led_multimodal_evidence(self) -> None:
         alignment = self.adapter.apply(self.camera(), self.radar())
         self.assertEqual(alignment.association_state, "MATCHED")
         self.assertEqual(alignment.radar_track_id, 7)
@@ -125,15 +128,6 @@ class CameraRadarAlignmentAdapterTest(unittest.TestCase):
         self.assertEqual(alignment.radar_point_count, 40)
         self.assertAlmostEqual(alignment.radar_point_cloud_spread_m or 0.0, 0.22)
         self.assertLessEqual(alignment.association_confidence, 0.70)
-        self.assertFalse(alignment.affects_fixed_fusion)
-
-        fusion_service = MultimodalFusionService(_UnusedProvider(), _UnusedProvider())
-        camera = self._camera_evidence(NOW)
-        radar = self._radar_evidence(NOW)
-        before = fusion_service.fuse(camera, radar, method="fixed_weighted")
-        self.adapter.apply(self.camera(), self.radar())
-        after = fusion_service.fuse(camera, radar, method="fixed_weighted")
-        self.assertEqual(before.model_dump(), after.model_dump())
 
     def test_out_of_sync_and_multiple_candidates_are_explicit(self) -> None:
         self.assertEqual(
@@ -261,66 +255,6 @@ class CameraRadarAlignmentAdapterTest(unittest.TestCase):
         self.assertEqual(alignment.association_state, "RADAR_TRACK_MISSING")
         self.assertIn("RADAR_STREAM_OFFLINE", alignment.reason_codes)
 
-    def test_temporal_high_requires_matched_alignment(self) -> None:
-        camera_samples = [self._camera_evidence(NOW + timedelta(seconds=i)) for i in range(2)]
-        radar_samples = [self._radar_evidence(NOW + timedelta(seconds=i)) for i in range(2)]
-        fixed_service = MultimodalFusionService(_UnusedProvider(), _UnusedProvider())
-
-        matched_engine = TemporalAssociatedFusion()
-        unknown_engine = TemporalAssociatedFusion()
-        matched_result = None
-        unknown_result = None
-        for camera, radar in zip(camera_samples, radar_samples):
-            fixed = fixed_service.fuse(camera, radar, method="fixed_weighted")
-            matched_result = matched_engine.apply(
-                camera,
-                radar,
-                fixed,
-                alignment=AlignedPersonEvidence(
-                    association_state="MATCHED",
-                    camera_person_id=0,
-                    radar_track_id=7,
-                    eligible_for_temporal_association=True,
-                    reason_codes=["TARGET_ASSOCIATION_MATCHED"],
-                ),
-            )
-            unknown_result = unknown_engine.apply(
-                camera,
-                radar,
-                fixed,
-                alignment=AlignedPersonEvidence(
-                    association_state="RADAR_TRACK_MISSING",
-                    camera_person_id=0,
-                    reason_codes=["RADAR_TRACK_UNAVAILABLE"],
-                ),
-            )
-        assert matched_result is not None and unknown_result is not None
-        self.assertEqual(matched_result.fusion_state, "HIGH")
-        self.assertEqual(unknown_result.fusion_state, "WATCH")
-        self.assertEqual(unknown_result.target_association, "UNKNOWN")
-
-    def test_spatial_conflict_without_risk_is_unknown_not_watch(self) -> None:
-        camera = self._camera_evidence(NOW)
-        camera.camera_risk_state = "LOW"
-        radar = self._radar_evidence(NOW)
-        radar.radar_risk_state = "NORMAL"
-        radar.radar_feature["risk_state"] = "NORMAL"  # type: ignore[index]
-        fixed_service = MultimodalFusionService(_UnusedProvider(), _UnusedProvider())
-        fixed = fixed_service.fuse(camera, radar, method="fixed_weighted")
-        result = TemporalAssociatedFusion().apply(
-            camera,
-            radar,
-            fixed,
-            alignment=AlignedPersonEvidence(
-                association_state="TRACK_CONFLICT",
-                camera_person_id=0,
-                radar_track_id=7,
-                reason_codes=["SPATIAL_GATE_FAILED"],
-            ),
-        )
-        self.assertEqual(result.fusion_state, "UNKNOWN")
-        self.assertEqual(result.degraded_mode, "MODALITY_CONFLICT")
-
     @staticmethod
     def _camera_evidence(timestamp):
         return CameraEvidence(
@@ -432,7 +366,6 @@ class AlignmentAwareRiskAugmentationTest(unittest.TestCase):
         self.assertEqual(result.radar_motion_evidence_strength, "STRONG")
         self.assertEqual(result.associated_risk_state, "HIGH")
         self.assertFalse(result.uses_radar_tcn_score)
-        self.assertFalse(result.affects_fixed_fusion)
         self.assertFalse(result.affects_alerts)
 
     def test_radar_motion_cannot_raise_camera_low_to_high(self) -> None:

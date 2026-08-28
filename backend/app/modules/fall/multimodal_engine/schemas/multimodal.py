@@ -1,28 +1,11 @@
-from datetime import datetime, timezone
-from typing import Literal, TypeAlias
+from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 QualityLevel = Literal["GOOD", "DEGRADED", "INSUFFICIENT_DATA"]
-MultimodalDataSource = Literal["REAL_CAMERA_RADAR", "PUBLIC_EVIDENCE_REPLAY"]
-FusionRiskLevel = Literal["LOW", "MEDIUM", "HIGH", "UNKNOWN"]
-FusionMethod = Literal[
-    "fixed_weighted",
-    "quality_weighted",
-    "radar_quality_adaptive",
-    "mlp",
-    "camera_led_evidence_v2",
-]
+MultimodalDataSource = Literal["REAL_CAMERA_RADAR"]
 FusionStableState = Literal["UNKNOWN", "NORMAL", "WATCH", "HIGH", "IMMINENT"]
-FusionOperatingState = Literal[
-    "NORMAL_FUSION",
-    "CAMERA_ONLY",
-    "RADAR_ONLY",
-    "RADAR_CONFLICT",
-    "LOW_CONFIDENCE",
-    "NO_EVIDENCE",
-]
 FusionDegradedMode = Literal[
     "NONE",
     "CAMERA_ONLY",
@@ -32,13 +15,6 @@ FusionDegradedMode = Literal[
     "MODALITY_CONFLICT",
     "BOTH_UNAVAILABLE",
 ]
-DominantModality = Literal["CAMERA", "RADAR", "BALANCED", "NONE"]
-TargetAssociationState = Literal[
-    "MATCHED",
-    "SINGLE_TARGET_ASSUMED",
-    "CONFLICT",
-    "UNKNOWN",
-]
 AlignmentAssociationState = Literal[
     "MATCHED",
     "OUT_OF_SYNC",
@@ -47,13 +23,6 @@ AlignmentAssociationState = Literal[
     "MULTIPLE_CANDIDATES",
     "TRACK_CONFLICT",
     "CALIBRATION_INVALID",
-]
-TemporalRelation = Literal[
-    "ALIGNED",
-    "RADAR_THEN_CAMERA",
-    "CAMERA_THEN_RADAR",
-    "NO_RISK_SEQUENCE",
-    "INSUFFICIENT_EVIDENCE",
 ]
 RadarMotionEvidenceStrength = Literal["NONE", "WEAK", "STRONG", "UNKNOWN"]
 AssociatedEvidenceState = Literal[
@@ -77,8 +46,8 @@ CameraLedEvidenceFusionMode = Literal[
 ]
 DynamicRiskLevel = Literal["LOW", "MODERATE", "HIGH", "UNKNOWN"]
 FallEventState = Literal["NO_EVENT", "SUSPECTED", "CONFIRMED", "UNKNOWN"]
-FeatureScalar: TypeAlias = float | int | bool | str | None
-EvidenceFeature: TypeAlias = list[float] | dict[str, FeatureScalar]
+type FeatureScalar = float | int | bool | str | None
+type EvidenceFeature = list[float] | dict[str, FeatureScalar]
 
 
 class ExplainableRiskReason(BaseModel):
@@ -120,12 +89,8 @@ class DynamicRiskIndex(BaseModel):
     available: bool = False
     shadow_only: Literal[True] = True
     camera_context_affects_score: Literal[False] = False
-    score_interpretation: Literal["SCREENING_INDEX_NOT_DIAGNOSIS"] = (
-        "SCREENING_INDEX_NOT_DIAGNOSIS"
-    )
-    disclaimer: str = (
-        "动态风险指数是持续运动学风险筛查信号，不是临床诊断或未来跌倒概率。"
-    )
+    score_interpretation: Literal["SCREENING_INDEX_NOT_DIAGNOSIS"] = "SCREENING_INDEX_NOT_DIAGNOSIS"
+    disclaimer: str = "动态风险指数是持续运动学风险筛查信号，不是临床诊断或未来跌倒概率。"
 
     @model_validator(mode="after")
     def availability_matches_dynamic_score(self) -> "DynamicRiskIndex":
@@ -146,7 +111,7 @@ class ShortTermFallWarning(BaseModel):
     score_name: Literal["short-term fall risk score"] = "short-term fall risk score"
     short_term_fall_score: float | None = Field(default=None, ge=0, le=1)
     state: FusionStableState = "UNKNOWN"
-    method: FusionMethod = "fixed_weighted"
+    method: Literal["camera_led_evidence_v2"] = "camera_led_evidence_v2"
     degraded_mode: FusionDegradedMode = "BOTH_UNAVAILABLE"
     synchronized: bool = False
     reasons: list[ExplainableRiskReason] = Field(default_factory=list)
@@ -195,9 +160,7 @@ class PhysiologicalEvidence(BaseModel):
     score_interpretation: Literal["PHYSIOLOGICAL_SIGNAL_NOT_FALL_RISK_SCORE"] = (
         "PHYSIOLOGICAL_SIGNAL_NOT_FALL_RISK_SCORE"
     )
-    disclaimer: str = (
-        "rPPG 是非接触式生理状态观察信号，不是跌倒概率、临床诊断或告警触发条件。"
-    )
+    disclaimer: str = "rPPG 是非接触式生理状态观察信号，不是跌倒概率、临床诊断或告警触发条件。"
 
     @model_validator(mode="after")
     def unknown_until_assessment_is_ready(self) -> "PhysiologicalEvidence":
@@ -216,9 +179,7 @@ class FinalDecisionContext(BaseModel):
     stage: Literal["POST_FUSION_DECISION_CONTEXT"] = "POST_FUSION_DECISION_CONTEXT"
     base_short_term_state: FusionStableState = "UNKNOWN"
     base_fall_event_status: FallEventState = "UNKNOWN"
-    physiological_context: PhysiologicalEvidence = Field(
-        default_factory=PhysiologicalEvidence
-    )
+    physiological_context: PhysiologicalEvidence = Field(default_factory=PhysiologicalEvidence)
     physiological_review_level: Literal[
         "NO_ADDITIONAL_CONCERN",
         "MANUAL_REVIEW_SUGGESTED",
@@ -241,15 +202,6 @@ class RiskTrendPoint(BaseModel):
     dynamic_risk_score: float | None = Field(default=None, ge=0, le=1)
     short_term_fall_score: float | None = Field(default=None, ge=0, le=1)
     fall_event_status: FallEventState = "UNKNOWN"
-
-
-class ContributionTrendPoint(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    timestamp: datetime
-    camera: float = Field(ge=0, le=1)
-    radar: float = Field(ge=0, le=1)
-    dominant_modality: DominantModality = "NONE"
 
 
 class RuntimeUnknownRatio(BaseModel):
@@ -280,11 +232,8 @@ class MultimodalRuntimeStatistics(BaseModel):
     window_start: datetime | None = None
     window_end: datetime | None = None
     risk_trend: list[RiskTrendPoint] = Field(default_factory=list)
-    contribution_trend: list[ContributionTrendPoint] = Field(default_factory=list)
     unknown_ratio: RuntimeUnknownRatio = Field(default_factory=RuntimeUnknownRatio)
     average_quality: RuntimeAverageQuality = Field(default_factory=RuntimeAverageQuality)
-    mean_contribution_camera: float = Field(default=0.0, ge=0, le=1)
-    mean_contribution_radar: float = Field(default=0.0, ge=0, le=1)
     statistics_interpretation: Literal["OBSERVABILITY_ONLY"] = "OBSERVABILITY_ONLY"
 
 
@@ -302,7 +251,7 @@ class CameraEvidence(BaseModel):
     source_timestamp: datetime | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
-    received_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    received_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     processing_latency_ms: float | None = Field(default=None, ge=0)
     evidence_age_ms: float = Field(default=0.0, ge=0)
     timestamp_semantics: Literal["LATEST_SOURCE_FRAME_CAPTURE_TIME"] = (
@@ -360,12 +309,10 @@ class RadarEvidence(BaseModel):
     source_timestamp: datetime | None = None
     window_start: datetime | None = None
     window_end: datetime | None = None
-    received_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    received_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     processing_latency_ms: float | None = Field(default=None, ge=0)
     evidence_age_ms: float = Field(default=0.0, ge=0)
-    timestamp_semantics: Literal["RADAR_WINDOW_END_FRAME_TIME"] = (
-        "RADAR_WINDOW_END_FRAME_TIME"
-    )
+    timestamp_semantics: Literal["RADAR_WINDOW_END_FRAME_TIME"] = "RADAR_WINDOW_END_FRAME_TIME"
     available: bool
     room: str | None = Field(default=None, max_length=64)
     device_id: str | None = Field(default=None, max_length=128)
@@ -418,49 +365,6 @@ class RadarEligibilityDecision(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
 
 
-class FusionResult(BaseModel):
-    """Decision-layer result. The score is not a fall probability."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    score_name: Literal["multimodal risk score"] = "multimodal risk score"
-    fusion_score: float | None = Field(default=None, ge=0, le=1)
-    raw_fusion_score: float | None = Field(default=None, ge=0, le=1)
-    stable_fusion_score: float | None = Field(default=None, ge=0, le=1)
-    risk_level: FusionRiskLevel
-    fusion_state: FusionStableState = "UNKNOWN"
-    stable_fusion_state: FusionStableState = "UNKNOWN"
-    fusion_risk_state: FusionStableState = "UNKNOWN"
-    fusion_mode: FusionOperatingState = "NO_EVIDENCE"
-    contribution_camera: float = Field(ge=0, le=1)
-    contribution_radar: float = Field(ge=0, le=1)
-    dominant_modality: DominantModality
-    method: FusionMethod
-    sync_delta_seconds: float | None = Field(default=None, ge=0)
-    sync_delta_ms: float | None = Field(default=None, ge=0)
-    synchronized: bool
-    degraded_mode: FusionDegradedMode = "NONE"
-    reason_codes: list[str] = Field(default_factory=list)
-    degraded_reason: str | None = Field(default=None, max_length=256)
-    radar_eligibility: RadarEligibilityDecision = Field(
-        default_factory=RadarEligibilityDecision
-    )
-
-    @model_validator(mode="after")
-    def result_is_internally_consistent(self) -> "FusionResult":
-        if self.raw_fusion_score is None:
-            self.raw_fusion_score = self.fusion_score
-        if self.sync_delta_ms is None and self.sync_delta_seconds is not None:
-            self.sync_delta_ms = self.sync_delta_seconds * 1000.0
-        contribution_sum = self.contribution_camera + self.contribution_radar
-        if self.fusion_score is None:
-            if self.risk_level != "UNKNOWN" or contribution_sum != 0:
-                raise ValueError("missing fusion score requires UNKNOWN and zero contribution")
-        elif abs(contribution_sum - 1.0) > 1e-6:
-            raise ValueError("available fusion result contributions must sum to one")
-        return self
-
-
 class AlignedPersonEvidence(BaseModel):
     """CameraPerson↔RadarTrack compatibility evidence."""
 
@@ -497,7 +401,6 @@ class AlignedPersonEvidence(BaseModel):
     shadow_only: bool = True
     realtime_active: bool = False
     affects_realtime_fusion_v2: bool = False
-    affects_fixed_fusion: Literal[False] = False
     affects_alerts: Literal[False] = False
     interpretation: Literal["COARSE_COMPATIBILITY_NOT_IDENTITY"] = (
         "COARSE_COMPATIBILITY_NOT_IDENTITY"
@@ -513,9 +416,7 @@ class AlignedPersonEvidence(BaseModel):
 
     @field_validator("radar_source_timestamp")
     @classmethod
-    def radar_source_timestamp_needs_timezone(
-        cls, value: datetime | None
-    ) -> datetime | None:
+    def radar_source_timestamp_needs_timezone(cls, value: datetime | None) -> datetime | None:
         if value is not None and (value.tzinfo is None or value.utcoffset() is None):
             raise ValueError("aligned radar source timestamp must include timezone")
         return value
@@ -543,7 +444,6 @@ class AlignmentAwareRiskAugmentationResult(BaseModel):
     radar_motion_features: dict[str, FeatureScalar] = Field(default_factory=dict)
     reason_codes: list[str] = Field(default_factory=list)
     shadow_only: Literal[True] = True
-    affects_fixed_fusion: Literal[False] = False
     affects_alerts: Literal[False] = False
     camera_model_unchanged: Literal[True] = True
     camera_score_unchanged: Literal[True] = True
@@ -566,12 +466,8 @@ class CameraLedEvidenceFusionV2Result(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["camera_led_evidence_fusion_v2"] = (
-        "camera_led_evidence_fusion_v2"
-    )
-    score_name: Literal["camera-led evidence risk score"] = (
-        "camera-led evidence risk score"
-    )
+    schema_version: Literal["camera_led_evidence_fusion_v2"] = "camera_led_evidence_fusion_v2"
+    score_name: Literal["camera-led evidence risk score"] = "camera-led evidence risk score"
     camera_led_score: float | None = Field(default=None, ge=0, le=1)
     camera_led_state: FusionStableState = "UNKNOWN"
     fusion_mode: CameraLedEvidenceFusionMode = "LOW_CONFIDENCE"
@@ -590,49 +486,17 @@ class CameraLedEvidenceFusionV2Result(BaseModel):
     realtime_active: Literal[True] = True
     shadow_only: Literal[False] = False
     affects_app_result: Literal[True] = True
-    affects_fixed_fusion: Literal[False] = False
     affects_alerts: Literal[False] = False
     camera_score_unchanged: Literal[True] = True
     radar_score_affects_risk_score: Literal[False] = False
     radar_can_veto_camera_high: Literal[False] = False
-    interpretation: Literal["STATE_LEVEL_EVIDENCE_NOT_WEIGHTED_AVERAGE"] = (
-        "STATE_LEVEL_EVIDENCE_NOT_WEIGHTED_AVERAGE"
-    )
+    interpretation: Literal["STATE_LEVEL_ASSOCIATED_EVIDENCE"] = "STATE_LEVEL_ASSOCIATED_EVIDENCE"
 
     @model_validator(mode="after")
     def score_must_remain_camera_score(self) -> "CameraLedEvidenceFusionV2Result":
         if self.camera_led_score != self.camera_score:
             raise ValueError("Fusion v2 score must remain identical to camera score")
         return self
-
-
-class TemporalAssociatedFusionResult(BaseModel):
-    """Shadow-only temporal/association experiment; never a formal alert input."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    score_name: Literal["temporal associated multimodal risk score"] = (
-        "temporal associated multimodal risk score"
-    )
-    fusion_score: float | None = Field(default=None, ge=0, le=1)
-    fusion_state: FusionStableState = "UNKNOWN"
-    shadow_only: Literal[True] = True
-    affects_alerts: Literal[False] = False
-    window_seconds: float = Field(gt=0)
-    camera_evidence_count: int = Field(ge=0)
-    radar_evidence_count: int = Field(ge=0)
-    continuous_camera_risk: bool = False
-    continuous_radar_risk: bool = False
-    target_association: TargetAssociationState = "UNKNOWN"
-    alignment_state: AlignmentAssociationState = "CALIBRATION_INVALID"
-    camera_target_id: str | None = Field(default=None, max_length=128)
-    radar_target_id: str | None = Field(default=None, max_length=128)
-    temporal_relation: TemporalRelation = "INSUFFICIENT_EVIDENCE"
-    causal_consistency: bool = False
-    sync_delta_ms: float | None = Field(default=None, ge=0)
-    degraded_mode: FusionDegradedMode = "NONE"
-    reason_codes: list[str] = Field(default_factory=list)
-    radar_evidence_snapshot: dict[str, FeatureScalar] = Field(default_factory=dict)
 
 
 class MultimodalQualitySummary(BaseModel):
@@ -661,9 +525,8 @@ class MultimodalLatestResponse(BaseModel):
 
     camera: CameraEvidence
     radar: RadarEvidence
-    fusion: FusionResult
     dynamic_risk: DynamicRiskIndex = Field(default_factory=DynamicRiskIndex)
-    short_term_warning: ShortTermFallWarning | None = None
+    short_term_warning: ShortTermFallWarning
     fall_event: FallEventSummary = Field(
         default_factory=lambda: FallEventSummary(
             fall_event_status="UNKNOWN",
@@ -671,22 +534,17 @@ class MultimodalLatestResponse(BaseModel):
             summary="尚未形成可判读的跌倒事件状态",
         )
     )
-    physiological_evidence: PhysiologicalEvidence = Field(
-        default_factory=PhysiologicalEvidence
-    )
+    physiological_evidence: PhysiologicalEvidence = Field(default_factory=PhysiologicalEvidence)
     final_decision_context: FinalDecisionContext | None = None
     runtime_statistics: MultimodalRuntimeStatistics = Field(
         default_factory=MultimodalRuntimeStatistics
     )
-    temporal_associated_fusion: TemporalAssociatedFusionResult | None = None
     associated_risk_augmentation: AlignmentAwareRiskAugmentationResult | None = None
-    camera_led_evidence_fusion_v2: CameraLedEvidenceFusionV2Result | None = None
+    camera_led_evidence_fusion_v2: CameraLedEvidenceFusionV2Result
     alignment: AlignedPersonEvidence = Field(default_factory=AlignedPersonEvidence)
-    operating_mode: Literal["LIVE_CAMERA_RADAR", "OFFLINE_EVIDENCE_REPLAY"] = (
-        "LIVE_CAMERA_RADAR"
-    )
+    operating_mode: Literal["LIVE_CAMERA_RADAR"] = "LIVE_CAMERA_RADAR"
     data_source: MultimodalDataSource = "REAL_CAMERA_RADAR"
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     quality: MultimodalQualitySummary
     timing: MultimodalTimingAudit | None = None
 
@@ -698,19 +556,7 @@ class MultimodalLatestResponse(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def expose_short_term_score_separately(self) -> "MultimodalLatestResponse":
-        if self.short_term_warning is None:
-            self.short_term_warning = ShortTermFallWarning(
-                short_term_fall_score=(
-                    self.fusion.stable_fusion_score
-                    if self.fusion.stable_fusion_score is not None
-                    else self.fusion.raw_fusion_score
-                ),
-                state=self.fusion.stable_fusion_state,
-                method=self.fusion.method,
-                degraded_mode=self.fusion.degraded_mode,
-                synchronized=self.fusion.synchronized,
-            )
+    def expose_final_decision_context(self) -> "MultimodalLatestResponse":
         if self.final_decision_context is None:
             self.final_decision_context = FinalDecisionContext(
                 base_short_term_state=self.short_term_warning.state,
@@ -795,25 +641,11 @@ class CameraLedAssociatedLatestResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["camera_led_associated_latest_v1"] = (
-        "camera_led_associated_latest_v1"
-    )
+    schema_version: Literal["camera_led_associated_latest_v1"] = "camera_led_associated_latest_v1"
     camera: CameraLedAssociatedCameraProjection
     radar: CameraLedAssociatedRadarProjection
     alignment: CameraLedAssociatedAlignmentProjection
     associated_risk_augmentation: CameraLedAssociatedRiskProjection | None = None
-    camera_led_evidence_fusion_v2: CameraLedEvidenceFusionV2Result | None = None
+    camera_led_evidence_fusion_v2: CameraLedEvidenceFusionV2Result
     fall_event: CameraLedAssociatedFallEventProjection
     timestamp: datetime
-
-
-class OfflineReplayLatestResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dataset: str
-    subject_id: str
-    recording_id: str
-    cursor: int = Field(ge=0)
-    next_cursor: int = Field(ge=0)
-    sample_count: int = Field(ge=1)
-    multimodal: MultimodalLatestResponse

@@ -200,7 +200,7 @@ private fun MonitorServiceCard(
                 capabilityStatusColor(status.radarParticipationStatus),
             )
             CapabilityRow(
-                "Camera-led Fusion v2",
+                "摄像头与雷达多模态融合",
                 cameraAlgorithmStatusLabel(status.fusionStatus),
                 capabilityStatusColor(status.fusionStatus),
             )

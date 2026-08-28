@@ -189,9 +189,9 @@ class MultimodalGuardSessionService:
                 ),
                 enabled_for_session=True,
                 detail=(
-                    "Camera-led Fusion v2联合判断"
+                    "摄像头与雷达正在进行多模态联合判断"
                     if radar_participating
-                    else "Camera-led Fusion v2处于Camera-only降级"
+                    else "雷达暂不可用，当前由摄像头独立判断"
                 ),
             ),
             reason_codes=reasons,

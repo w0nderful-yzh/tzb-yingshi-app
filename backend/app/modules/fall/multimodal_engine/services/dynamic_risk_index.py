@@ -6,12 +6,10 @@ from app.modules.fall.multimodal_engine.schemas.multimodal import (
     DynamicRiskIndex,
     ExplainableRiskReason,
     FallEventSummary,
-    FusionResult,
     RadarEvidence,
     ShortTermFallWarning,
 )
 from app.modules.fall.multimodal_engine.schemas.radar import RadarStatusResponse
-
 
 _LABELS = {
     "POSTURE_ABNORMAL": "姿态异常",
@@ -46,9 +44,7 @@ class DynamicRiskIndexService:
                     "radar_mobility": None,
                     "radar_descent": None,
                 },
-                disclaimer=(
-                    "长期评估窗口尚未就绪。系统不会用短时预警分数代替动态风险指数。"
-                ),
+                disclaimer=("长期评估窗口尚未就绪。系统不会用短时预警分数代替动态风险指数。"),
             )
 
         component_reasons = [
@@ -85,26 +81,6 @@ class DynamicRiskIndexService:
             reasons=self._deduplicate(reasons),
             available=True,
             disclaimer=assessment.disclaimer,
-        )
-
-    def build_short_term_warning(
-        self,
-        camera: CameraEvidence,
-        radar: RadarEvidence,
-        fusion: FusionResult,
-    ) -> ShortTermFallWarning:
-        reasons = self._context_reasons(camera, radar)
-        return ShortTermFallWarning(
-            short_term_fall_score=(
-                fusion.stable_fusion_score
-                if fusion.stable_fusion_score is not None
-                else fusion.raw_fusion_score
-            ),
-            state=fusion.stable_fusion_state,
-            method=fusion.method,
-            degraded_mode=fusion.degraded_mode,
-            synchronized=fusion.synchronized,
-            reasons=self._deduplicate(reasons),
         )
 
     def build_camera_led_short_term_warning(
@@ -192,7 +168,12 @@ class DynamicRiskIndexService:
             )
         radar_state_risky = radar.radar_risk_state in {"WATCH", "IMMINENT", "CONFIRMED"}
         height_delta = self._feature(radar.radar_feature, "height_delta")
-        if radar.available and radar_state_risky and isinstance(height_delta, (int, float)) and height_delta < 0:
+        if (
+            radar.available
+            and radar_state_risky
+            and isinstance(height_delta, (int, float))
+            and height_delta < 0
+        ):
             reasons.append(
                 ExplainableRiskReason(
                     code="RAPID_HEIGHT_CHANGE",

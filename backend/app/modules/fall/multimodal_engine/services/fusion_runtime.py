@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import logging
+import threading
+from collections import deque
+from collections.abc import Callable
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import threading
-from typing import Callable
 
 from app.modules.fall.multimodal_engine.schemas.multimodal import (
     CameraEvidence,
-    ContributionTrendPoint,
-    FusionResult,
     MultimodalLatestResponse,
     MultimodalRuntimeStatistics,
     MultimodalTimingAudit,
@@ -22,212 +19,6 @@ from app.modules.fall.multimodal_engine.schemas.multimodal import (
     RuntimeAverageQuality,
     RuntimeUnknownRatio,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class FusionStateConfig:
-    ema_alpha: float = 0.35
-    watch_enter: float = 0.35
-    watch_exit: float = 0.25
-    high_enter: float = 0.65
-    high_exit: float = 0.50
-    imminent_enter: float = 0.80
-    watch_confirmation_windows: int = 2
-    high_confirmation_windows: int = 3
-    normal_confirmation_windows: int = 2
-    conflict_score_gap: float = 0.45
-    minimum_modality_quality: float = 0.25
-
-    def __post_init__(self) -> None:
-        if not 0 < self.ema_alpha <= 1:
-            raise ValueError("fusion EMA alpha must be in (0, 1]")
-        if not 0 <= self.watch_exit < self.watch_enter < self.high_exit < self.high_enter:
-            raise ValueError("fusion hysteresis thresholds are not ordered")
-        if not self.high_enter <= self.imminent_enter <= 1:
-            raise ValueError("fusion imminent threshold is not ordered")
-        if min(
-            self.watch_confirmation_windows,
-            self.high_confirmation_windows,
-            self.normal_confirmation_windows,
-        ) < 1:
-            raise ValueError("fusion confirmations must be positive")
-
-
-class FusionStateMachine:
-    """Stabilize a decision score without changing either modality model."""
-
-    def __init__(self, config: FusionStateConfig) -> None:
-        self.config = config
-        self._lock = threading.RLock()
-        self._stream_key: tuple[str | None, str | None] | None = None
-        self._last_signature: tuple[object, ...] | None = None
-        self._ema: float | None = None
-        self._stable_state = "UNKNOWN"
-        self._candidate_state = "UNKNOWN"
-        self._candidate_count = 0
-
-    def apply(
-        self,
-        camera: CameraEvidence,
-        radar: RadarEvidence,
-        raw: FusionResult,
-    ) -> FusionResult:
-        with self._lock:
-            stream_key = (radar.room, radar.device_id or camera.device_id)
-            if self._stream_key is not None and stream_key != self._stream_key:
-                self._reset_unlocked()
-            self._stream_key = stream_key
-            signature = (
-                camera.source_timestamp,
-                radar.source_timestamp,
-                raw.method,
-                raw.raw_fusion_score,
-                raw.degraded_mode,
-                raw.fusion_mode,
-                raw.radar_eligibility.eligible,
-                tuple(raw.radar_eligibility.reason_codes),
-            )
-            reason_codes = list(raw.reason_codes)
-            degraded_mode = raw.degraded_mode
-            fusion_mode = raw.fusion_mode
-            conflict = self._has_conflict(camera, radar, raw)
-            if conflict:
-                degraded_mode = "MODALITY_CONFLICT"
-                fusion_mode = "RADAR_CONFLICT"
-                reason_codes.append("MODALITY_SCORE_CONFLICT")
-
-            if signature == self._last_signature:
-                return raw.model_copy(
-                    update={
-                        "stable_fusion_score": self._ema,
-                        "fusion_state": self._candidate_state,
-                        "stable_fusion_state": self._stable_state,
-                        "fusion_risk_state": self._stable_state,
-                        "degraded_mode": degraded_mode,
-                        "fusion_mode": fusion_mode,
-                        "reason_codes": sorted(set(reason_codes)),
-                    }
-                )
-            self._last_signature = signature
-
-            score = raw.raw_fusion_score
-            if score is None:
-                self._ema = None
-                self._stable_state = "UNKNOWN"
-                self._candidate_state = "UNKNOWN"
-                self._candidate_count = 0
-                return raw.model_copy(
-                    update={
-                        "stable_fusion_score": None,
-                        "fusion_state": "UNKNOWN",
-                        "stable_fusion_state": "UNKNOWN",
-                        "fusion_risk_state": "UNKNOWN",
-                        "degraded_mode": "BOTH_UNAVAILABLE",
-                        "fusion_mode": "NO_EVIDENCE",
-                        "reason_codes": sorted(set(reason_codes + ["NO_VALID_MODALITY"])),
-                    }
-                )
-
-            self._ema = score if self._ema is None else (
-                self.config.ema_alpha * score + (1.0 - self.config.ema_alpha) * self._ema
-            )
-            constrained_watch = degraded_mode != "NONE" or conflict
-            candidate = self._candidate_for_score(
-                self._ema,
-                camera,
-                radar,
-                constrained_watch=constrained_watch,
-            )
-            self._advance(candidate)
-            return raw.model_copy(
-                update={
-                    "stable_fusion_score": self._ema,
-                    "fusion_state": candidate,
-                    "stable_fusion_state": self._stable_state,
-                    "fusion_risk_state": self._stable_state,
-                    "degraded_mode": degraded_mode,
-                    "fusion_mode": fusion_mode,
-                    "reason_codes": sorted(set(reason_codes)),
-                }
-            )
-
-    def _candidate_for_score(
-        self,
-        score: float,
-        camera: CameraEvidence,
-        radar: RadarEvidence,
-        *,
-        constrained_watch: bool,
-    ) -> str:
-        if constrained_watch:
-            return "WATCH"
-        if (
-            score >= self.config.imminent_enter
-            and camera.camera_score is not None
-            and radar.radar_score is not None
-            and camera.camera_score >= self.config.high_enter
-            and radar.radar_score >= self.config.high_enter
-        ):
-            return "IMMINENT"
-        if self._stable_state in {"HIGH", "IMMINENT"}:
-            if score >= self.config.high_exit:
-                return self._stable_state
-            return "WATCH"
-        if score >= self.config.high_enter:
-            return "HIGH"
-        if self._stable_state == "WATCH":
-            return "WATCH" if score >= self.config.watch_exit else "NORMAL"
-        return "WATCH" if score >= self.config.watch_enter else "NORMAL"
-
-    def _advance(self, candidate: str) -> None:
-        if candidate == self._candidate_state:
-            self._candidate_count += 1
-        else:
-            self._candidate_state = candidate
-            self._candidate_count = 1
-        required = (
-            self.config.high_confirmation_windows
-            if candidate in {"HIGH", "IMMINENT"}
-            else self.config.watch_confirmation_windows
-            if candidate == "WATCH"
-            else self.config.normal_confirmation_windows
-        )
-        if self._candidate_count >= required:
-            self._stable_state = candidate
-
-    def _has_conflict(
-        self,
-        camera: CameraEvidence,
-        radar: RadarEvidence,
-        raw: FusionResult,
-    ) -> bool:
-        if not camera.available or not radar.available:
-            return False
-        if raw.radar_eligibility.assessed and not raw.radar_eligibility.eligible:
-            return raw.fusion_mode == "RADAR_CONFLICT"
-        assert camera.camera_score is not None and radar.radar_score is not None
-        if abs(camera.camera_score - radar.radar_score) >= self.config.conflict_score_gap:
-            return True
-        high_low = (
-            camera.camera_score >= self.config.high_enter
-            and radar.radar_score < self.config.watch_exit
-        ) or (
-            radar.radar_score >= self.config.high_enter
-            and camera.camera_score < self.config.watch_exit
-        )
-        return high_low
-
-    def _reset_unlocked(self) -> None:
-        self._last_signature = None
-        self._ema = None
-        self._stable_state = "UNKNOWN"
-        self._candidate_state = "UNKNOWN"
-        self._candidate_count = 0
-
-    def reset(self) -> None:
-        with self._lock:
-            self._stream_key = None
-            self._reset_unlocked()
 
 
 class FusionTimingTracker:
@@ -242,9 +33,10 @@ class FusionTimingTracker:
             if camera.available and radar.available:
                 signature = (camera.source_timestamp, radar.source_timestamp)
                 if signature != self._last_signature:
-                    delta = abs(
-                        (camera.source_timestamp - radar.source_timestamp).total_seconds()
-                    ) * 1000.0
+                    delta = (
+                        abs((camera.source_timestamp - radar.source_timestamp).total_seconds())
+                        * 1000.0
+                    )
                     self._samples.append(delta)
                     self._last_signature = signature
             values = sorted(self._samples)
@@ -275,11 +67,12 @@ class FusionRuntimeTracker:
     def observe(self, response: MultimodalLatestResponse) -> MultimodalRuntimeStatistics:
         camera = response.camera
         radar = response.radar
-        fusion = response.fusion
+        fusion = response.camera_led_evidence_fusion_v2
         signature = (
             camera.source_timestamp,
             radar.source_timestamp,
-            fusion.method,
+            fusion.camera_led_state,
+            fusion.fusion_mode,
             response.dynamic_risk.dynamic_risk_score,
             response.fall_event.fall_event_status,
         )
@@ -300,9 +93,7 @@ class FusionRuntimeTracker:
                         "camera_quality": camera.camera_quality,
                         "radar_quality": radar.radar_quality,
                         "overall_quality": response.quality.overall,
-                        "physio_quality": (
-                            physio.quality_coverage if physio.enabled else None
-                        ),
+                        "physio_quality": (physio.quality_coverage if physio.enabled else None),
                         "dynamic_score": response.dynamic_risk.dynamic_risk_score,
                         "short_score": (
                             response.short_term_warning.short_term_fall_score
@@ -310,9 +101,6 @@ class FusionRuntimeTracker:
                             else None
                         ),
                         "event_state": response.fall_event.fall_event_status,
-                        "camera_contribution": fusion.contribution_camera,
-                        "radar_contribution": fusion.contribution_radar,
-                        "dominant": fusion.dominant_modality,
                     }
                 )
                 self._last_signature = signature
@@ -329,7 +117,6 @@ class FusionRuntimeTracker:
             if sample["physio_quality"] is not None
         ]
         risk_samples = samples[-30:]
-        contribution_samples = samples[-30:]
         return MultimodalRuntimeStatistics(
             sample_count=count,
             window_start=samples[0]["timestamp"],
@@ -343,15 +130,6 @@ class FusionRuntimeTracker:
                 )
                 for sample in risk_samples
             ],
-            contribution_trend=[
-                ContributionTrendPoint(
-                    timestamp=sample["timestamp"],
-                    camera=sample["camera_contribution"],
-                    radar=sample["radar_contribution"],
-                    dominant_modality=sample["dominant"],
-                )
-                for sample in contribution_samples
-            ],
             unknown_ratio=RuntimeUnknownRatio(
                 camera=sum(bool(sample["camera_unknown"]) for sample in samples) / count,
                 radar=sum(bool(sample["radar_unknown"]) for sample in samples) / count,
@@ -363,15 +141,7 @@ class FusionRuntimeTracker:
                 camera=sum(float(sample["camera_quality"]) for sample in samples) / count,
                 radar=sum(float(sample["radar_quality"]) for sample in samples) / count,
                 overall=sum(float(sample["overall_quality"]) for sample in samples) / count,
-                physiological=(
-                    sum(physio_values) / len(physio_values) if physio_values else None
-                ),
-            ),
-            mean_contribution_camera=(
-                sum(float(sample["camera_contribution"]) for sample in samples) / count
-            ),
-            mean_contribution_radar=(
-                sum(float(sample["radar_contribution"]) for sample in samples) / count
+                physiological=(sum(physio_values) / len(physio_values) if physio_values else None),
             ),
         )
 
@@ -406,18 +176,21 @@ class FusionShadowLogger:
             return
         camera = response.camera
         radar = response.radar
-        fusion = response.fusion
-        temporal = response.temporal_associated_fusion
         associated = response.associated_risk_augmentation
         camera_led_v2 = response.camera_led_evidence_fusion_v2
-        signature = (camera.source_timestamp, radar.source_timestamp, fusion.method)
+        signature = (
+            camera.source_timestamp,
+            radar.source_timestamp,
+            camera_led_v2.camera_led_state,
+            camera_led_v2.fusion_mode,
+        )
         with self._lock:
             if signature == self._last_signature:
                 return
             self._last_signature = signature
             payload = {
-                "schema_version": "real_camera_radar_shadow_v1",
-                "logged_at": datetime.now(timezone.utc).isoformat(),
+                "schema_version": "camera_led_radar_evidence_runtime_v1",
+                "logged_at": datetime.now(UTC).isoformat(),
                 "operating_mode": response.operating_mode,
                 "data_source": response.data_source,
                 "timestamp": response.timestamp.isoformat(),
@@ -438,45 +211,25 @@ class FusionShadowLogger:
                     if isinstance(radar.radar_feature, dict)
                     else None
                 ),
-                "raw_fusion_score": fusion.raw_fusion_score,
-                "fusion_score": (
-                    fusion.stable_fusion_score
-                    if fusion.stable_fusion_score is not None
-                    else fusion.raw_fusion_score
-                ),
-                "stable_fusion_score": fusion.stable_fusion_score,
-                "fusion_method": fusion.method,
                 "camera_quality": camera.camera_quality,
                 "radar_quality": radar.radar_quality,
-                "contribution_camera": fusion.contribution_camera,
-                "contribution_radar": fusion.contribution_radar,
-                "sync_delta_ms": fusion.sync_delta_ms,
-                "degraded_mode": fusion.degraded_mode,
-                "fusion_mode": fusion.fusion_mode,
-                "fusion_v2_mode": (
-                    camera_led_v2.fusion_mode
-                    if camera_led_v2 is not None
-                    else None
-                ),
-                "fusion_v2_reason_codes": (
-                    camera_led_v2.reason_codes
-                    if camera_led_v2 is not None
-                    else []
-                ),
-                "radar_eligibility": fusion.radar_eligibility.model_dump(mode="json"),
-                "fusion_state": fusion.fusion_state,
-                "stable_fusion_state": fusion.stable_fusion_state,
+                "sync_delta_ms": camera_led_v2.sync_delta_ms,
+                "fusion_mode": camera_led_v2.fusion_mode,
+                "reason_codes": camera_led_v2.reason_codes,
+                "radar_eligibility": {
+                    "eligible": camera_led_v2.radar_eligible,
+                    "association_state": camera_led_v2.association_state,
+                },
                 "risk_state": {
                     "camera": camera.camera_risk_state,
                     "radar": radar.radar_risk_state,
-                    "fusion": fusion.fusion_risk_state,
+                    "multimodal": camera_led_v2.camera_led_state,
                 },
                 "dynamic_risk_score": response.dynamic_risk.dynamic_risk_score,
                 "dynamic_risk_level": response.dynamic_risk.risk_level,
                 "dynamic_risk_available": response.dynamic_risk.available,
                 "dynamic_risk_reasons": [
-                    reason.model_dump(mode="json")
-                    for reason in response.dynamic_risk.reasons
+                    reason.model_dump(mode="json") for reason in response.dynamic_risk.reasons
                 ],
                 "short_term_fall_score": (
                     response.short_term_warning.short_term_fall_score
@@ -484,9 +237,7 @@ class FusionShadowLogger:
                     else None
                 ),
                 "fall_event_status": response.fall_event.fall_event_status,
-                "physiological_evidence": response.physiological_evidence.model_dump(
-                    mode="json"
-                ),
+                "physiological_evidence": response.physiological_evidence.model_dump(mode="json"),
                 "final_decision_context": (
                     response.final_decision_context.model_dump(mode="json")
                     if response.final_decision_context is not None
@@ -500,21 +251,13 @@ class FusionShadowLogger:
                     "average_quality": response.runtime_statistics.average_quality.model_dump(
                         mode="json"
                     ),
-                    "mean_contribution_camera": (
-                        response.runtime_statistics.mean_contribution_camera
-                    ),
-                    "mean_contribution_radar": (
-                        response.runtime_statistics.mean_contribution_radar
-                    ),
                 },
-                "reason_codes": fusion.reason_codes,
                 "room": radar.room,
                 "device": radar.device_id or camera.device_id,
                 "model_version": {
                     "camera": camera.model_version,
                     "radar": radar.model_version,
-                    "fusion": "decision_fusion_state_v1",
-                    "fusion_v2": "camera-led-evidence-fusion-v2-realtime-v1",
+                    "multimodal": "camera-led-evidence-fusion-v2-realtime-v1",
                 },
                 "camera_source_timestamp": camera.source_timestamp.isoformat(),
                 "radar_source_timestamp": radar.source_timestamp.isoformat(),
@@ -526,18 +269,9 @@ class FusionShadowLogger:
                 "radar_processing_latency_ms": radar.processing_latency_ms,
                 "camera_evidence_age_ms": camera.evidence_age_ms,
                 "radar_evidence_age_ms": radar.evidence_age_ms,
-                "radar_evidence_snapshot": (
-                    temporal.radar_evidence_snapshot
-                    if temporal is not None
-                    else radar.radar_feature
-                ),
-                "temporal_associated_fusion": (
-                    temporal.model_dump(mode="json") if temporal is not None else None
-                ),
+                "radar_evidence_snapshot": radar.radar_feature,
                 "associated_risk_augmentation": (
-                    associated.model_dump(mode="json")
-                    if associated is not None
-                    else None
+                    associated.model_dump(mode="json") if associated is not None else None
                 ),
                 "camera_led_evidence_fusion_v2": (
                     {
@@ -554,13 +288,9 @@ class FusionShadowLogger:
                         "shadow_only": camera_led_v2.shadow_only,
                         "affects_alerts": camera_led_v2.affects_alerts,
                     }
-                    if camera_led_v2 is not None
-                    else None
                 ),
                 "alignment": response.alignment.model_dump(mode="json"),
-                "shadow_extensions_schema": (
-                    "camera_led_evidence_fusion_v2_log_v1"
-                ),
+                "shadow_extensions_schema": ("camera_led_evidence_fusion_v2_log_v1"),
             }
             try:
                 self._logger.info(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
@@ -569,7 +299,7 @@ class FusionShadowLogger:
 
 
 class FusionShadowSampler:
-    """Evaluate the formal fixed baseline even when no dashboard is open."""
+    """Sample the active Camera-led path even when no dashboard is open."""
 
     def __init__(
         self,

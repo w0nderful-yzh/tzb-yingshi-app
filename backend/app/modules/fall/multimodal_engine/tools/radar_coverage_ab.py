@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from datetime import datetime, timezone
 import json
 import math
-from pathlib import Path
 import statistics
 import time
+from collections import Counter
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
 
 CONDITIONS = ("WOOD_BLOCKED", "WOOD_REMOVED_OR_RADAR_REPOSITIONED")
 
@@ -71,7 +70,7 @@ def _longest_state_run(samples: list[dict[str, Any]], state: str, interval: floa
 
 
 def _state_transitions(states: list[str]) -> int:
-    return sum(left != right for left, right in zip(states, states[1:]))
+    return sum(left != right for left, right in zip(states, states[1:], strict=False))
 
 
 def _risk_episodes(states: list[str]) -> int:
@@ -104,7 +103,7 @@ def capture(
     interval_seconds: float,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     sample_count = max(1, math.ceil(duration_seconds / interval_seconds))
     samples: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -115,7 +114,7 @@ def capture(
         )
         samples.append(
             {
-                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "observed_at": datetime.now(UTC).isoformat(),
                 "radar": radar or {},
                 "multimodal": multimodal or {},
             }
@@ -133,16 +132,14 @@ def capture(
     states: dict[str, list[str]] = {
         "camera_only": [],
         "radar_only": [],
-        "fixed_fusion": [],
-        "temporal_associated_fusion": [],
+        "camera_led_multimodal": [],
     }
     unique_radar_timestamps: set[str] = set()
     for sample in samples:
         radar_status = sample["radar"]
         multimodal = sample["multimodal"]
         radar_evidence = multimodal.get("radar") or {}
-        fixed = multimodal.get("fusion") or {}
-        temporal = multimodal.get("temporal_associated_fusion") or {}
+        camera_led = multimodal.get("camera_led_evidence_fusion_v2") or {}
         metrics = radar_status.get("sensor_metrics") or {}
         prediction = _prediction(radar_status)
         available = radar_evidence.get("available") is True
@@ -162,14 +159,9 @@ def capture(
         if isinstance(timestamp, str):
             unique_radar_timestamps.add(timestamp)
         camera_evidence = multimodal.get("camera") or {}
-        states["camera_only"].append(
-            camera_evidence.get("camera_risk_state", "UNKNOWN")
-        )
+        states["camera_only"].append(camera_evidence.get("camera_risk_state", "UNKNOWN"))
         states["radar_only"].append(radar_evidence.get("radar_risk_state", "UNKNOWN"))
-        states["fixed_fusion"].append(fixed.get("fusion_risk_state", "UNKNOWN"))
-        states["temporal_associated_fusion"].append(
-            temporal.get("fusion_state", "UNKNOWN")
-        )
+        states["camera_led_multimodal"].append(camera_led.get("camera_led_state", "UNKNOWN"))
 
     received = len(samples)
     availability_ratio = sum(radar_available) / received if received else 0.0
@@ -184,20 +176,24 @@ def capture(
             "state_transitions": _state_transitions(observed),
             "risk_episode_count": _risk_episodes(observed),
         }
-    normal_false_alarm_proxy = {
-        name: metrics["watch_high_imminent_ratio"]
-        for name, metrics in state_metrics.items()
-    } if expected_risk == "NORMAL" else None
+    normal_false_alarm_proxy = (
+        {name: metrics["watch_high_imminent_ratio"] for name, metrics in state_metrics.items()}
+        if expected_risk == "NORMAL"
+        else None
+    )
     return {
         "schema_version": "radar_coverage_ab_capture_v1",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "started_at": started_at.isoformat(),
         "data_source": "REAL_CAMERA_RADAR",
         "shadow_only": True,
         "condition": condition,
         "activity_label": activity_label,
         "expected_risk": expected_risk,
-        "protocol_note": "Keep camera, models, thresholds, action sequence and distance unchanged between A/B conditions.",
+        "protocol_note": (
+            "Keep camera, models, thresholds, action sequence and distance "
+            "unchanged between A/B conditions."
+        ),
         "duration_seconds_requested": duration_seconds,
         "interval_seconds": interval_seconds,
         "sample_count": received,
@@ -206,11 +202,13 @@ def capture(
             "radar_availability_ratio": availability_ratio,
             "radar_unavailable_ratio": 1.0 - availability_ratio,
             "unique_radar_evidence_windows": len(unique_radar_timestamps),
-            "evidence_update_hz": len(unique_radar_timestamps) / max(duration_seconds, interval_seconds),
+            "evidence_update_hz": len(unique_radar_timestamps)
+            / max(duration_seconds, interval_seconds),
             "point_count": _summary(point_counts),
             "point_count_zero_ratio": (
                 sum(value <= 0 for value in point_counts) / len(point_counts)
-                if point_counts else None
+                if point_counts
+                else None
             ),
             "missing_frame_ratio": _summary(missing_ratios),
             "radar_unknown_longest_seconds": _longest_state_run(
@@ -220,7 +218,7 @@ def capture(
             "radar_score_available_ratio": len(scores) / received if received else 0.0,
             "radar_state_transitions": _state_transitions(states["radar_only"]),
         },
-        "four_path_state_metrics": state_metrics,
+        "room_path_state_metrics": state_metrics,
         "normal_activity_false_alarm_proxy": normal_false_alarm_proxy,
         "samples": samples,
     }
@@ -255,7 +253,7 @@ def compare(blocked: dict[str, Any], clear: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "schema_version": "radar_coverage_ab_comparison_v1",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "data_source": "REAL_CAMERA_RADAR",
         "shadow_only": True,
         "valid_protocol_match": (
@@ -263,11 +261,9 @@ def compare(blocked: dict[str, Any], clear: dict[str, Any]) -> dict[str, Any]:
             and blocked.get("expected_risk") == clear.get("expected_risk")
         ),
         "comparison": comparison,
-        "four_path_state_metrics": {
-            "wood_blocked": blocked.get("four_path_state_metrics", {}),
-            "wood_removed_or_radar_repositioned": clear.get(
-                "four_path_state_metrics", {}
-            ),
+        "room_path_state_metrics": {
+            "wood_blocked": blocked.get("room_path_state_metrics", {}),
+            "wood_removed_or_radar_repositioned": clear.get("room_path_state_metrics", {}),
         },
         "interpretation_guardrail": (
             "Coverage differences diagnose placement/occlusion only; they do not validate "
@@ -289,7 +285,7 @@ def _console_summary(payload: dict[str, Any], output: Path) -> dict[str, Any]:
             "sample_count": payload["sample_count"],
             "errors": payload["errors"],
             "coverage": payload["coverage"],
-            "four_path_state_metrics": payload["four_path_state_metrics"],
+            "room_path_state_metrics": payload["room_path_state_metrics"],
             "output": str(output.resolve()),
         }
     return {**payload, "output": str(output.resolve())}

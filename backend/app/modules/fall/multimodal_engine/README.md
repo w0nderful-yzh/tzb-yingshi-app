@@ -18,7 +18,7 @@ Camera BioSTGCN + IWR6843 B0 calibrated TCN
 ```
 
 The engine preserves the existing Camera model, Radar checkpoint, 50 ms
-alignment gate, Fixed 0.6/0.4 baseline and Camera-led Fusion v2 rules.
+alignment gate and Camera-led Fusion v2 rules.
 Track-first / Risk-late-binding remains a shadow pipeline.
 
 ## Repository boundary
