@@ -14,9 +14,14 @@ import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.data.psychology.repository.PsychologyRepository
 import com.tzb.safeguard.data.repository.SafeRepository
 import com.tzb.safeguard.ui.components.UiState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+private const val FALL_REFRESH_INTERVAL_MS = 2_500L
 
 data class HomeData(
     val elder: ElderInfo?,
@@ -44,7 +49,27 @@ class HomeViewModel(
 
     init { load() }
 
-    /** 从消息页返回等场景下只刷新事件列表，不重载视频流与其他状态。 */
+    /** 回到首页时刷新：事件计数与心理卡立即刷新，跌倒卡进入与跌倒页同频的前台轮询。 */
+    fun startForegroundRefresh() {
+        refreshEvents()
+        refreshPsychology()
+        if (summaryRefreshJob?.isActive == true) return
+        summaryRefreshJob = viewModelScope.launch {
+            while (isActive) {
+                refreshFallRisk()
+                delay(FALL_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
+
+    fun stopForegroundRefresh() {
+        summaryRefreshJob?.cancel()
+        summaryRefreshJob = null
+    }
+
+    private var summaryRefreshJob: Job? = null
+
+    /** 事件列表只影响摘要卡，失败时保持现状，不拖垮首页。 */
     fun refreshEvents() {
         viewModelScope.launch {
             val elderId = repo.getCurrentElderId().getOrElse { return@launch }
@@ -61,6 +86,23 @@ class HomeViewModel(
         }
     }
 
+    private suspend fun refreshFallRisk() {
+        val elderId = repo.getCurrentElderId().getOrElse { return }
+        fallRiskRepo.getOverview(elderId).onSuccess { overview ->
+            val latest = _state.value as? UiState.Success ?: return@onSuccess
+            if (latest.data.elder?.elder_id == elderId) {
+                _state.value = UiState.Success(latest.data.copy(fallRisk = overview))
+            }
+        }
+    }
+
+    private fun refreshPsychology() {
+        viewModelScope.launch {
+            val elderId = repo.getCurrentElderId().getOrElse { return@launch }
+            loadPsychology(elderId)
+        }
+    }
+
     private fun fraudWarnings(events: EventListData): List<RiskEvent> =
         events.events.filter {
             it.type == "fraud_suspected" && it.verification_status != "retracted"
@@ -74,9 +116,9 @@ class HomeViewModel(
                 ?: return@launch fail(IllegalStateException("当前账号还没有绑定老人"))
             Session.currentElderId = elder.elder_id
             val devices = repo.getDevices(elder.elder_id).getOrElse { return@launch fail(it) }
-            val events = repo.getEvents(elderId = elder.elder_id).getOrElse {
-                return@launch fail(it)
-            }
+            // 事件为附属数据：失败只降级摘要卡，不再把整个首页打成 Error。
+            val events = repo.getEvents(elderId = elder.elder_id).getOrNull()
+            val fraudEvents = events?.let { fraudWarnings(it) } ?: emptyList()
             val selected = devices.devices.firstOrNull { it.online } ?: devices.devices.firstOrNull()
             _state.value = UiState.Success(
                 HomeData(
@@ -84,10 +126,10 @@ class HomeViewModel(
                     devices = devices.devices,
                     selectedDevice = selected,
                     streamLoading = selected != null,
-                    pendingWarnings = fraudWarnings(events).filter {
+                    pendingWarnings = fraudEvents.filter {
                         it.status == "open" || it.status == "acknowledged"
                     },
-                    recentWarnings = fraudWarnings(events).take(3),
+                    recentWarnings = fraudEvents.take(3),
                 )
             )
             launch { loadFallRisk(elder.elder_id) }

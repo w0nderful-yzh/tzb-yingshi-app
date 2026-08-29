@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -150,3 +150,17 @@ async def test_missing_snapshot_returns_unavailable(tmp_path) -> None:
     assert result.assessment_state is CognitiveState.UNAVAILABLE
     assert result.updated_at is None
     assert result.attention_level is None
+
+
+def test_stale_processing_maps_to_component_unavailable() -> None:
+    fresh = _snapshot(assessment_id="processing", status="processing")
+    stale = fresh.model_copy(
+        update={
+            "window_started_at": datetime.now(UTC_TZ) - timedelta(minutes=36),
+        }
+    )
+    result = map_cognitive_snapshot(stale)
+    assert result.assessment_state is CognitiveState.UNAVAILABLE
+    assert "组件未就绪" in result.evidence_summary
+    active = map_cognitive_snapshot(fresh)
+    assert active.assessment_state is CognitiveState.PROCESSING

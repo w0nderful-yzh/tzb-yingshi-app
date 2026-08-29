@@ -1,5 +1,6 @@
 """Map Cognitive worker snapshots to a non-diagnostic App-facing contract."""
 
+from datetime import UTC, datetime
 from math import isfinite
 
 from app.modules.psychology.cognitive.schemas import (
@@ -14,6 +15,8 @@ from app.modules.psychology.cognitive.schemas import (
 
 _DISCLAIMER = "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
 _GUIDANCE = "建议结合日常沟通、生活表现和专业人员意见进行综合关注"
+# 采集会话上限 30 min + 任务队列缓冲；processing 超过该时长说明推理 Worker 未运行。
+_STALE_PROCESSING_SECONDS = 35 * 60
 
 
 def map_cognitive_snapshot(
@@ -29,6 +32,20 @@ def map_cognitive_snapshot(
     completed_reference = _completed_reference(latest_completed)
 
     if snapshot.status == "processing":
+        processing_age = (datetime.now(UTC) - snapshot.window_started_at).total_seconds()
+        if processing_age > _STALE_PROCESSING_SECONDS:
+            # 采集/推理远超正常周期：推理 Worker 未运行的明确状态，不无限显示"正在采集"。
+            return CognitiveOverview(
+                source_status=CognitiveState.UNAVAILABLE,
+                assessment_state=CognitiveState.UNAVAILABLE,
+                data_quality=CognitiveDataQuality.INSUFFICIENT,
+                assessment_window=window,
+                evidence_summary="认知分析组件未就绪，本次暂无结果；组件启动后会在守护期间自动重新评估",
+                guidance=_GUIDANCE,
+                updated_at=updated_at,
+                disclaimer=_DISCLAIMER,
+                latest_completed=completed_reference,
+            )
         return CognitiveOverview(
             source_status=CognitiveState.PROCESSING,
             assessment_state=CognitiveState.PROCESSING,

@@ -1,6 +1,7 @@
 package com.tzb.safeguard.ui.screens.home
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,7 @@ import androidx.navigation.NavHostController
 import com.tzb.safeguard.ServiceLocator
 import com.tzb.safeguard.data.fall.model.FallRiskOverview
 import com.tzb.safeguard.data.fall.model.RoomFallRisk
+import com.tzb.safeguard.data.media.Ys7MonitorService
 import com.tzb.safeguard.data.model.RiskEvent
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.ui.components.AppBottomBar
@@ -88,11 +90,16 @@ fun HomeScreen(
 ) {
     val state by vm.state.collectAsState()
     val notice by vm.notice.collectAsState()
-    // 从消息页（可能删除过消息）返回首页时刷新事件计数。
+    val guardStatus by Ys7MonitorService.status.collectAsState()
+    // 前台期间保持摘要新鲜：事件/心理回到首页即刷新，跌倒卡与跌倒页同频轮询。
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) vm.refreshEvents()
+            when (event) {
+                Lifecycle.Event.ON_START -> vm.startForegroundRefresh()
+                Lifecycle.Event.ON_STOP -> vm.stopForegroundRefresh()
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -122,6 +129,13 @@ fun HomeScreen(
                     }
                 }
                 item {
+                    GuardianStatusChip(
+                        enabled = guardStatus.enabled,
+                        detail = guardStatus.detail,
+                        onClick = { navController.navigate(Routes.PROFILE) },
+                    )
+                }
+                item {
                     FamilyLiveCard(data = data, onRetry = vm::retryLive)
                 }
                 item {
@@ -134,7 +148,7 @@ fun HomeScreen(
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("今日预测", style = MaterialTheme.typography.titleLarge)
+                        Text("今日动态", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.weight(1f))
                         TextButton(onClick = { navController.navigate(Routes.ALERTS) }) {
                             Text("全部", color = TextSecondary)
@@ -273,6 +287,50 @@ private fun QuickAction(
         }
         Spacer(Modifier.height(6.dp))
         Text(label, fontSize = 12.sp, color = TextMain, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun GuardianStatusChip(
+    enabled: Boolean,
+    detail: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = if (enabled) Color(0xFFE7F8EE) else Color(0xFFF4F5F7),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .background(if (enabled) SafeGreen else TextSecondary, CircleShape),
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                if (enabled) "守护中" else "未开启守护",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                detail.ifBlank { if (enabled) "各项能力运行中" else "点击前往个人页开启" },
+                color = TextSecondary,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(10.dp),
+            )
+        }
     }
 }
 

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shield
@@ -90,6 +91,7 @@ fun AlertDetailScreen(
                 mutableIntStateOf(detail.evidence_frames.lastIndex.coerceAtLeast(0))
             }
             val frame = detail.evidence_frames.getOrNull(selectedFrame)
+            val heroImageUrl = frame?.image_url ?: detail.evidence_image_url
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -97,29 +99,31 @@ fun AlertDetailScreen(
             ) {
                 item { DetailTopBar { navController.popBackStack() } }
                 item { EventHero(detail) }
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.55f)
-                            .clickable { navController.navigate(Routes.MONITOR) },
-                    ) {
-                        EvidenceImage(
-                            imageUrl = frame?.image_url ?: detail.evidence_image_url,
-                            timestamp = formatTime(frame?.captured_at ?: detail.occurred_at).removePrefix("今天 "),
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.55f),
-                            modifier = Modifier.align(Alignment.Center),
+                if (heroImageUrl != null) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.55f)
+                                .clickable { navController.navigate(Routes.MONITOR) },
                         ) {
-                            Icon(
-                                Icons.Filled.PlayArrow,
-                                contentDescription = "查看实时画面",
-                                tint = Color.White,
-                                modifier = Modifier.padding(12.dp).size(28.dp),
+                            EvidenceImage(
+                                imageUrl = heroImageUrl,
+                                timestamp = formatTime(frame?.captured_at ?: detail.occurred_at).removePrefix("今天 "),
+                                modifier = Modifier.fillMaxSize(),
                             )
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.55f),
+                                modifier = Modifier.align(Alignment.Center),
+                            ) {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    contentDescription = "查看实时画面",
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(12.dp).size(28.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -166,26 +170,45 @@ fun AlertDetailScreen(
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (detail.status == "open") {
-                            BigActionButton("立即介入", icon = Icons.Filled.PhoneInTalk) {
-                                vm.patchStatus("acknowledged")
+                        if (detail.type == "fall_suspected") {
+                            if (detail.status == "open") {
+                                BigActionButton("收到预警，立即查看", icon = Icons.Filled.PersonSearch) {
+                                    vm.patchStatus("acknowledged")
+                                }
                             }
-                        }
-                        if (detail.status == "open" || detail.status == "acknowledged") {
-                            BigActionButton(
-                                "设备语音提醒（待接入）",
-                                icon = Icons.Filled.NotificationsActive,
-                                outlined = true,
-                            ) { vm.sendInterventionReminder() }
-                            BigActionButton(
-                                "风险已核实并解除",
-                                icon = Icons.Filled.CheckCircle,
-                                outlined = true,
-                            ) { vm.patchStatus("resolved") }
-                            TextButton(
-                                onClick = { vm.patchStatus("false_alarm") },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text("标记为误报", color = TextSecondary) }
+                            if (detail.status == "open" || detail.status == "acknowledged") {
+                                BigActionButton(
+                                    "已确认老人安全",
+                                    icon = Icons.Filled.CheckCircle,
+                                    outlined = true,
+                                ) { vm.patchStatus("resolved") }
+                                TextButton(
+                                    onClick = { vm.patchStatus("false_alarm") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("误报，并未跌倒", color = TextSecondary) }
+                            }
+                        } else {
+                            if (detail.status == "open") {
+                                BigActionButton("立即介入", icon = Icons.Filled.PhoneInTalk) {
+                                    vm.patchStatus("acknowledged")
+                                }
+                            }
+                            if (detail.status == "open" || detail.status == "acknowledged") {
+                                BigActionButton(
+                                    "设备语音提醒（待接入）",
+                                    icon = Icons.Filled.NotificationsActive,
+                                    outlined = true,
+                                ) { vm.sendInterventionReminder() }
+                                BigActionButton(
+                                    "风险已核实并解除",
+                                    icon = Icons.Filled.CheckCircle,
+                                    outlined = true,
+                                ) { vm.patchStatus("resolved") }
+                                TextButton(
+                                    onClick = { vm.patchStatus("false_alarm") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("标记为误报", color = TextSecondary) }
+                            }
                         }
                     }
                 }
@@ -227,10 +250,14 @@ private fun DetailTopBar(onBack: () -> Unit) {
 
 @Composable
 private fun EventHero(detail: EventDetail) {
-    val title = when (detail.fraud?.scene) {
-        "home_visit" -> "入户诈骗风险预警"
-        "telecom" -> "电信诈骗风险预警"
-        else -> "诈骗风险预警"
+    val title = if (detail.type == "fall_suspected") {
+        if (detail.level == "emergency") "疑似跌倒预警" else "跌倒高风险预警"
+    } else {
+        when (detail.fraud?.scene) {
+            "home_visit" -> "入户诈骗风险预警"
+            "telecom" -> "电信诈骗风险预警"
+            else -> "诈骗风险预警"
+        }
     }
     AppCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -260,25 +287,38 @@ private fun EventHero(detail: EventDetail) {
 
 @Composable
 private fun PredictionReasonCard(detail: EventDetail) {
+    val isFall = detail.type == "fall_suspected"
     AppCard {
-        Text("预测原因", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(if (isFall) "事件说明" else "预测原因", fontWeight = FontWeight.Bold, fontSize = 17.sp)
         Spacer(Modifier.height(7.dp))
-        Text(
-            detail.fraud?.transition_reason?.ifBlank { null }
-                ?: detail.analysis.reasons.firstOrNull()?.value
-                ?: "多模态证据显示诈骗风险正在上升，建议家属尽快关注。",
-            color = TextMain,
-            fontSize = 14.sp,
-            lineHeight = 22.sp,
-        )
-        detail.fraud?.let {
-            Spacer(Modifier.height(8.dp))
+        if (isFall) {
             Text(
-                "当前阶段 S${it.state_index} · ${it.state_label}｜建议：${decisionLabel(it.decision)}",
-                color = levelColor(detail.level),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+                when (detail.level) {
+                    "emergency" -> "检测到疑似跌倒，请立即确认老人状态。"
+                    else -> "摄像头多模态判断为跌倒高风险，请立即关注老人状态。"
+                },
+                color = TextMain,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
             )
+        } else {
+            Text(
+                detail.fraud?.transition_reason?.ifBlank { null }
+                    ?: detail.analysis.reasons.firstOrNull()?.value
+                    ?: "多模态证据显示诈骗风险正在上升，建议家属尽快关注。",
+                color = TextMain,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+            )
+            detail.fraud?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "当前阶段 S${it.state_index} · ${it.state_label}｜建议：${decisionLabel(it.decision)}",
+                    color = levelColor(detail.level),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -289,8 +329,21 @@ private fun BasicInfoCard(detail: EventDetail) {
         Text("基本信息", fontWeight = FontWeight.Bold, fontSize = 17.sp)
         Spacer(Modifier.height(7.dp))
         InfoRow("时间", formatTime(detail.occurred_at))
-        InfoRow("位置", detail.location.ifBlank { "摄像头 ${detail.device_id}" })
-        InfoRow("建议", decisionLabel(detail.fraud?.decision.orEmpty()))
+        InfoRow(
+            "位置",
+            detail.location.ifBlank {
+                if (detail.device_id.isBlank()) "家中摄像头" else "摄像头 ${detail.device_id}"
+            },
+        )
+        InfoRow(
+            "建议",
+            if (detail.type == "fall_suspected") {
+                if (detail.level == "emergency") "立即联系或前往查看老人，确认是否需要帮助"
+                else "尽快确认老人当前状态，留意是否有受伤"
+            } else {
+                decisionLabel(detail.fraud?.decision.orEmpty())
+            },
+        )
     }
 }
 
