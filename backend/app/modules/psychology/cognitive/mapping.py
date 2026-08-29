@@ -5,13 +5,14 @@ from math import isfinite
 from app.modules.psychology.cognitive.schemas import (
     CognitiveAssessmentSnapshot,
     CognitiveAssessmentWindow,
+    CognitiveAttentionLevel,
     CognitiveCompletedReference,
     CognitiveDataQuality,
     CognitiveOverview,
     CognitiveState,
 )
 
-_DISCLAIMER = "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断"
+_DISCLAIMER = "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
 _GUIDANCE = "建议结合日常沟通、生活表现和专业人员意见进行综合关注"
 
 
@@ -71,6 +72,7 @@ def map_cognitive_snapshot(
         data_quality=_completed_quality(snapshot),
         assessment_window=window,
         estimated_mmse_score=snapshot.estimated_mmse_score,
+        attention_level=_attention_level(snapshot.estimated_mmse_score),
         evidence_summary="语音声学特征辅助分析已完成",
         guidance=_GUIDANCE,
         updated_at=updated_at,
@@ -108,6 +110,16 @@ def _completed_quality(snapshot: CognitiveAssessmentSnapshot) -> CognitiveDataQu
     return CognitiveDataQuality.LIMITED
 
 
+def _attention_level(score: float) -> CognitiveAttentionLevel:
+    if score >= 27.0:
+        return CognitiveAttentionLevel.NONE
+    if score >= 24.0:
+        return CognitiveAttentionLevel.MILD
+    if score >= 18.0:
+        return CognitiveAttentionLevel.MODERATE
+    return CognitiveAttentionLevel.HIGH
+
+
 def _completed_reference(
     snapshot: CognitiveAssessmentSnapshot | None,
 ) -> CognitiveCompletedReference | None:
@@ -121,6 +133,7 @@ def _completed_reference(
             ended_at=snapshot.window_ended_at,
         ),
         estimated_mmse_score=snapshot.estimated_mmse_score,
+        attention_level=_attention_level(snapshot.estimated_mmse_score),
         data_quality=_completed_quality(snapshot),
         evidence_summary="上一轮语音声学特征辅助分析已完成",
         updated_at=snapshot.completed_at,

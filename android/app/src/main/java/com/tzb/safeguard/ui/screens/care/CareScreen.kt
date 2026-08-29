@@ -141,6 +141,9 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
                 fontWeight = FontWeight.Bold,
             )
         }
+        overview.attention_level?.let { level ->
+            DataRow("辅助关注程度", cognitiveAttentionLevelLabel(level))
+        }
         Spacer(Modifier.height(8.dp))
         DataRow("数据质量", dataQualityLabel(overview.data_quality))
         overview.updated_at?.takeIf { it.isNotBlank() }?.let {
@@ -169,8 +172,14 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
 
     Spacer(Modifier.height(10.dp))
     Text(
+        "AI估计存在一定误差，建议结合日常表现及正式量表综合判断。",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
         overview.disclaimer.ifBlank {
-            "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断"
+            "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
         },
         style = MaterialTheme.typography.bodySmall,
         color = TextSecondary,
@@ -186,6 +195,9 @@ private fun PreviousCognitiveCompletedContent(completed: CognitiveCompletedRefer
             fontWeight = FontWeight.Bold,
         )
     }
+    completed.attention_level?.let { level ->
+        DataRow("辅助关注程度", cognitiveAttentionLevelLabel(level))
+    }
     DataRow("分析来源", "语音声学特征")
     DataRow("数据质量", dataQualityLabel(completed.data_quality))
     completed.updated_at?.takeIf { it.isNotBlank() }?.let {
@@ -199,6 +211,14 @@ private fun cognitiveStateLabel(state: String): String = when (state) {
     "failed" -> "本次分析未完成"
     "insufficient_data" -> "有效语音资料不足"
     else -> "服务暂不可用"
+}
+
+private fun cognitiveAttentionLevelLabel(level: String): String = when (level) {
+    "none" -> "暂无明显关注"
+    "mild" -> "建议关注"
+    "moderate" -> "需重点关注"
+    "high" -> "高度关注"
+    else -> "暂无法判断"
 }
 
 @Composable

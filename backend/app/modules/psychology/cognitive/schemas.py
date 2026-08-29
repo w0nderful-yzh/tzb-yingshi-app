@@ -64,6 +64,13 @@ class CognitiveDataQuality(StrEnum):
     INSUFFICIENT = "insufficient"
 
 
+class CognitiveAttentionLevel(StrEnum):
+    NONE = "none"
+    MILD = "mild"
+    MODERATE = "moderate"
+    HIGH = "high"
+
+
 class CognitiveAssessmentWindow(BaseModel):
     started_at: datetime
     ended_at: datetime | None = None
@@ -72,6 +79,7 @@ class CognitiveAssessmentWindow(BaseModel):
 class CognitiveCompletedReference(BaseModel):
     assessment_window: CognitiveAssessmentWindow
     estimated_mmse_score: float
+    attention_level: CognitiveAttentionLevel
     data_quality: CognitiveDataQuality
     source_modality: Literal["voice_acoustic"] = "voice_acoustic"
     evidence_summary: str
@@ -86,6 +94,7 @@ class CognitiveOverview(BaseModel):
     source_modality: Literal["voice_acoustic"] = "voice_acoustic"
     assessment_window: CognitiveAssessmentWindow | None = None
     estimated_mmse_score: float | None = None
+    attention_level: CognitiveAttentionLevel | None = None
     evidence_summary: str
     guidance: str
     updated_at: datetime | None = None
