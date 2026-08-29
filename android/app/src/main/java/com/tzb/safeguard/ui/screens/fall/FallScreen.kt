@@ -171,8 +171,14 @@ private fun RoomRiskCard(
         )
         Spacer(Modifier.height(6.dp))
         if (isCameraLedRoom) {
-            Text(riskSummary(room), style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(6.dp))
+            // 高风险或异常时才显示证据摘要；常规状态留给下方"雷达证据"行，避免语义重复。
+            val showSummary = room.risk_level in setOf("high", "critical") ||
+                room.prediction_state in setOf("no_person", "unavailable") ||
+                room.risk_level == "unknown"
+            if (showSummary) {
+                Text(riskSummary(room), style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(6.dp))
+            }
             if (cameraMonitoring != null) {
                 SensorStatusItem("视频监控", cameraMonitoring.camera_stream_status)
                 Spacer(Modifier.height(4.dp))

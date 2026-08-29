@@ -120,6 +120,22 @@ fun HomeScreen(
                     )
                 }
                 item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("今日预测", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { navController.navigate(Routes.ALERTS) }) {
+                            Text("全部", color = TextSecondary)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+                item {
                     FraudRiskSummaryCard(
                         pending = data.pendingWarnings,
                         recent = data.recentWarnings,
@@ -343,7 +359,7 @@ private fun FallRiskSummaryCard(overview: FallRiskOverview?, onClick: () -> Unit
                 }
                 Text(
                     overview?.let { fallOverallLabel(it.overall_risk_level) }
-                        ?: "风险服务暂不可用",
+                        ?: "服务暂不可用",
                     color = TextSecondary,
                     fontSize = 12.sp,
                 )
@@ -365,16 +381,9 @@ private fun FallRiskSummaryCard(overview: FallRiskOverview?, onClick: () -> Unit
 
 @Composable
 private fun FallRiskRoomRow(room: RoomFallRisk) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "${room.room_name} · ${fallDecisionLabel(room.decision_path)}",
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.sp,
-            )
-            Text(room.evidence_summary, color = TextSecondary, fontSize = 12.sp)
-        }
-        Spacer(Modifier.width(8.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(room.room_name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+        Spacer(Modifier.weight(1f))
         Text(
             fallRiskLevelLabel(room.risk_level),
             color = fallRiskLevelColor(room.risk_level),
@@ -384,18 +393,11 @@ private fun FallRiskRoomRow(room: RoomFallRisk) {
     }
 }
 
-private fun fallDecisionLabel(path: String): String = when (path) {
-    "camera_led_radar_evidence" -> "视觉主判断 · 雷达证据增强"
-    "camera_only" -> "视觉监测"
-    "radar_only" -> "雷达单模态监测"
-    else -> "监测暂不可用"
-}
-
 private fun fallOverallLabel(level: String): String = when (level) {
     "critical", "high" -> "存在需要关注的跌倒风险"
     "medium" -> "发现风险变化，正在持续监测"
     "normal", "low" -> "各房间正在稳定监测"
-    else -> "部分房间监测暂不可用"
+    else -> "服务暂不可用"
 }
 
 private fun fallRiskLevelLabel(level: String): String = when (level) {

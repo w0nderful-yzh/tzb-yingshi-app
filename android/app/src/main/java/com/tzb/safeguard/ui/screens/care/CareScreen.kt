@@ -116,7 +116,7 @@ private fun CognitiveAssessmentCard(
                 }
             }
             is UiState.Error -> {
-                Text("认知状态辅助评估服务暂不可用")
+                Text("服务暂不可用")
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 TextButton(onClick = onRetry) { Text("重新加载") }
             }
@@ -251,7 +251,7 @@ private fun PsychologyAssessmentCard(
                 }
             }
             is UiState.Error -> {
-                Text("心理评估服务暂不可用", style = MaterialTheme.typography.bodyMedium)
+                Text("服务暂不可用", style = MaterialTheme.typography.bodyMedium)
                 Text(state.message, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 TextButton(onClick = onRetry) { Text("重新加载") }
             }
