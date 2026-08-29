@@ -105,6 +105,17 @@ class Settings(BaseSettings):
         ge=60.0,
         le=24 * 3600.0,
     )
+    cognitive_enabled: bool = False
+    cognitive_runtime_dir: Path = (
+        REPOSITORY_ROOT / "backend/app/modules/psychology/cognitive/runtime"
+    )
+    cognitive_queue_maxsize: int = Field(default=8, ge=2, le=100)
+    cognitive_min_speech_seconds: int = Field(default=60, ge=60, le=120)
+    cognitive_target_speech_seconds: int = Field(default=120, ge=60, le=300)
+    cognitive_max_session_seconds: int = Field(default=30 * 60, ge=120, le=60 * 60)
+    cognitive_cooldown_seconds: int = Field(default=15 * 60, ge=0, le=24 * 60 * 60)
+    cognitive_job_ttl_seconds: int = Field(default=60 * 60, ge=10 * 60, le=24 * 60 * 60)
+    cognitive_vad_mode: int = Field(default=2, ge=0, le=3)
 
     model_config = SettingsConfigDict(
         env_file=REPOSITORY_ROOT / ".env",

@@ -46,6 +46,7 @@ from app.modules.fraud.text_classifier import get_default_classifier
 from app.modules.fraud.visual_event_store import VisualEventStore
 from app.modules.guarding.psychology_observation import PsychologyObservationController
 from app.modules.guarding.service import GuardianSessionService
+from app.modules.psychology.cognitive.collector import CognitiveAudioCollector
 from app.modules.psychology.ports import PsychologySource
 from app.modules.psychology.service import PsychologyService
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
@@ -240,6 +241,17 @@ def create_app(
         device_id=runtime_settings.ys7_device_serial,
         queue_maxsize=runtime_settings.ys7_pcm_relay_queue_maxsize,
     )
+    cognitive_collector = CognitiveAudioCollector(
+        runtime_root=runtime_settings.cognitive_runtime_dir,
+        enabled=runtime_settings.cognitive_enabled,
+        queue_maxsize=runtime_settings.cognitive_queue_maxsize,
+        min_speech_seconds=runtime_settings.cognitive_min_speech_seconds,
+        target_speech_seconds=runtime_settings.cognitive_target_speech_seconds,
+        max_session_seconds=runtime_settings.cognitive_max_session_seconds,
+        cooldown_seconds=runtime_settings.cognitive_cooldown_seconds,
+        job_ttl_seconds=runtime_settings.cognitive_job_ttl_seconds,
+        vad_mode=runtime_settings.cognitive_vad_mode,
+    )
     media_stream_source = (
         pcm_relay if runtime_settings.ys7_media_source == "app_relay" else FfmpegPcmStreamSource()
     )
@@ -321,9 +333,11 @@ def create_app(
                 await media_worker.start()
             elif runtime_settings.ys7_media_enabled:
                 media_worker.last_error = "SenseVoice ingestion is disabled"
+            await cognitive_collector.start()
             yield
         finally:
             await guardian_session_service.shutdown()
+            await cognitive_collector.stop()
             await media_worker.stop()
             await alarm_poll_worker.stop()
             await event_worker.stop()
@@ -355,6 +369,7 @@ def create_app(
     application.state.ys7_alarm_poll_worker = alarm_poll_worker
     application.state.ys7_media_worker = media_worker
     application.state.ys7_pcm_relay = pcm_relay
+    application.state.cognitive_collector = cognitive_collector
     application.state.realtime_event_broker = realtime_event_broker
     application.state.ys7_api_client = ys7_api_client
     application.state.visual_event_store = visual_event_store

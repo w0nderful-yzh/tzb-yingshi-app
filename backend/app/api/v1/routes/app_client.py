@@ -41,6 +41,7 @@ from app.modules.app_client.schemas import (
     UserInfo,
 )
 from app.modules.app_client.service import AppClientService
+from app.modules.psychology.cognitive.collector import CognitiveAudioCollector
 
 router = APIRouter(tags=["app-client"])
 
@@ -285,6 +286,13 @@ async def relay_device_audio_pcm(
         relay.push(device_id=device_id, pcm=pcm, sample_rate=sample_rate)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cognitive_collector: CognitiveAudioCollector = request.app.state.cognitive_collector
+    cognitive_collector.push(
+        subject_key=elder.external_subject or str(elder.id),
+        device_id=device_id,
+        pcm=pcm,
+        sample_rate=sample_rate,
+    )
     return ApiResponse(data=EmptyData(), request_id=get_request_id(request))
 
 
