@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -58,11 +56,9 @@ import com.tzb.safeguard.data.model.RiskEvent
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.ui.components.AppBottomBar
 import com.tzb.safeguard.ui.components.AppTabs
-import com.tzb.safeguard.ui.components.EvidenceImage
 import com.tzb.safeguard.ui.components.StateBox
 import com.tzb.safeguard.ui.components.UiState
 import com.tzb.safeguard.ui.components.formatTime
-import com.tzb.safeguard.ui.components.levelBgColor
 import com.tzb.safeguard.ui.components.levelColor
 import com.tzb.safeguard.ui.navigation.Routes
 import com.tzb.safeguard.ui.navigation.appViewModel
@@ -124,30 +120,11 @@ fun HomeScreen(
                     )
                 }
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("今日预测", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { navController.navigate(Routes.ALERTS) }) {
-                            Text("全部", color = TextSecondary)
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                contentDescription = null,
-                                tint = TextSecondary,
-                                modifier = Modifier.size(12.dp),
-                            )
-                        }
-                    }
-                }
-                if (data.recentWarnings.isEmpty()) {
-                    item {
-                        EmptyPredictionCard()
-                    }
-                } else {
-                    items(data.recentWarnings, key = { it.event_id }) { event ->
-                        PredictionListItem(event) {
-                            navController.navigate(Routes.alertDetail(event.event_id))
-                        }
+                    FraudRiskSummaryCard(
+                        pending = data.pendingWarnings,
+                        recent = data.recentWarnings,
+                    ) {
+                        navController.navigate(Routes.ALERTS) { launchSingleTop = true }
                     }
                 }
                 item {
@@ -271,60 +248,77 @@ private fun QuickAction(
 }
 
 @Composable
-private fun PredictionListItem(event: RiskEvent, onClick: () -> Unit) {
-    val frame = event.evidence_frames.lastOrNull()
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = levelBgColor(event.level).copy(alpha = 0.46f),
-        border = BorderStroke(1.dp, LineColor.copy(alpha = 0.65f)),
-    ) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = levelColor(event.level)) {
-                Icon(
-                    Icons.Filled.Shield,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.padding(7.dp).size(18.dp),
-                )
-            }
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    event.fraud_state_label ?: "诈骗风险趋势",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(formatTime(event.occurred_at), color = TextSecondary, fontSize = 12.sp)
-                Text(event.location.ifBlank { "持续分析中" }, color = TextSecondary, fontSize = 12.sp)
-            }
-            EvidenceImage(
-                imageUrl = frame?.image_url ?: event.evidence_image_url,
-                timestamp = formatTime(frame?.captured_at ?: event.occurred_at).removePrefix("今天 "),
-                modifier = Modifier.width(116.dp).height(67.dp),
-            )
-        }
+private fun FraudRiskSummaryCard(
+    pending: List<RiskEvent>,
+    recent: List<RiskEvent>,
+    onClick: () -> Unit,
+) {
+    val statusText = when {
+        pending.isNotEmpty() -> "${pending.size} 条待处置"
+        recent.isEmpty() -> "持续守护中"
+        else -> "均已处置"
     }
-}
-
-@Composable
-private fun EmptyPredictionCard() {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = PredictionCardBackground,
         border = BorderStroke(1.dp, LineColor),
+        modifier = Modifier.clickable(onClick = onClick),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Shield, contentDescription = null, tint = Primary)
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text("诈骗风险持续预测中", fontWeight = FontWeight.Bold)
-                Text("暂未发现需要家属提前介入的风险趋势", color = TextSecondary, fontSize = 13.sp)
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Shield, contentDescription = null, tint = Primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("诈骗风险防护", fontWeight = FontWeight.SemiBold)
+                    Text("基于对话语音实时识别", color = TextSecondary, fontSize = 12.sp)
+                }
+                Text(statusText, color = TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+            recent.firstOrNull()?.let { event ->
+                Spacer(Modifier.height(9.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = CircleShape,
+                        color = levelColor(event.level),
+                        modifier = Modifier.size(8.dp),
+                    ) {}
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            event.fraud_state_label ?: "诈骗风险预警",
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                        )
+                        Text(
+                            "${formatTime(event.occurred_at)} · ${disposalLabel(event.status)}",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+                if (recent.size > 1) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("已有 ${recent.size} 条记录，点击查看全部", color = TextSecondary, fontSize = 12.sp)
+                }
             }
         }
     }
+}
+
+private fun disposalLabel(status: String): String = when (status) {
+    "open" -> "待处置"
+    "acknowledged" -> "处置中"
+    "resolved" -> "已完成"
+    "false_alarm" -> "已标记误报"
+    else -> status
 }
 
 @Composable
