@@ -60,6 +60,7 @@ class FallViewModel(
     }
 
     private companion object {
-        const val REFRESH_INTERVAL_MS = 2_500L
+        // 与引擎 0.53 s 的预测节奏对齐：高风险出现后 ≤1 s 内到达 App。
+        const val REFRESH_INTERVAL_MS = 1_000L
     }
 }
