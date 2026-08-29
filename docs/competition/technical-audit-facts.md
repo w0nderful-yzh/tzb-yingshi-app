@@ -46,6 +46,7 @@
 4. 摄像头链路输出 CameraEvidence；引擎轮询雷达服务得到 RadarEvidence，执行时间/空间关联和 Radar Eligibility Gate，再进入 Camera-led Evidence Fusion v2。v2 结果字段 `affects_app_result=true`、`shadow_only=false`，是 Android 客厅跌倒页面的实际结果源；它当前不直接创建正式告警事件。证据：`backend/app/modules/fall/multimodal_engine/services/camera_led_evidence_fusion_v2.py`、`schemas/multimodal.py:564`、`api/multimodal.py:32`。
 5. v2 以摄像头分数为主，雷达用于证据模式、支持/冲突状态与可解释性，不重写摄像头概率，也不否决摄像头高风险。该行为属于代码的真实融合边界，不应表述为双模态概率加权。证据同上。
 6. 摄像头不会随多模态服务启动自动采集。App 个人页“开始守护”调用主后端 guard-session，再由多模态引擎启动摄像头工作器、请求雷达运行并开启融合参与。证据：`backend/app/api/v1/routes/guard_session.py`、`multimodal_engine/services/guard_session.py`、Android `ProfileScreen.kt`。
+7. 跌倒正式事件由主后端（不是引擎）产生：`FallAlertController`（`app/modules/fall/fall_alerts.py`）在 `/api/v1/fall-risk/overview` 每次轮询时观察客厅 camera-led 状态，进入 high/critical 的边沿写 `FALL_SUSPECTED` RiskEvent 并经 WS 推送；一次幕次一条、60 秒冷却、状态回落自动重新武装。引擎侧 `affects_alerts=false` 与 MySQL 事件关闭的表述不变。
 
 ### 2.5 IWR6843ISK 雷达链路
 
@@ -62,7 +63,8 @@
 2. 后端把 PCM 切成 20 ms 帧，经 WebRTC VAD 形成语音段：启动阈值 200 ms、静音结束 700 ms、前后缓冲 300 ms、最长语音段 10 s、强制切段重叠 1 s。证据：`backend/app/modules/fraud/voice_activity.py`、`backend/app/workers/ys7_media_stream_worker.py`、`backend/app/core/config.py`。
 3. 流式部分结果使用 Paraformer Streaming；语句结束后由 SenseVoiceSmall 生成最终文本。两者均为 FunASR/ModelScope 模型，按配置在运行时下载或从缓存加载，仓库未包含模型本体。证据：`backend/app/infrastructure/external/sensevoice/streaming.py`、`recognizer.py`、`backend/pyproject.toml`。
 4. 文本和声学信号形成 Evidence，经轻量分类器、规则、状态机和可选 LLM 复核。轻量分类器不是外部 checkpoint，而是启动时使用 `fraud/data/train.jsonl` 训练的字符 TF-IDF + 校准 LogisticRegression；规则位于 `fraud/rules.json`。证据：`backend/app/modules/fraud/text_classifier.py`、`backend/app/modules/fraud/rules.json`、`backend/app/modules/fraud/fraud_state_machine.py`。
-5. LLM 是 OpenAI-compatible 可选复核层；当前默认与本机配置均未开启，不是默认诈骗链路。语义模型、近期上下文和 preliminary 事件也默认关闭。
+5. 正式事件阈值为 S2+：S1"待观察"多为环境噪声弱证据，只在会话内观察，不写 RiskEvent、不推送（`fraud/service.py` 两处 `state_index >= 2` 门控）。家属删除消息为软删除 `DELETE /api/v1/events/{event_id}`（RESOLVED + RETRACTED，保留审计动作），消息页含 `fall_suspected` 与 `fraud_suspected` 两类事件。
+6. LLM 是 OpenAI-compatible 可选复核层；当前默认与本机配置均未开启，不是默认诈骗链路。语义模型、近期上下文和 preliminary 事件也默认关闭。
 
 ### 2.7 心理状态评估
 

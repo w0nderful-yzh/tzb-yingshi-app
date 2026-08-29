@@ -7,6 +7,7 @@ import com.tzb.safeguard.data.fall.model.FallRiskOverview
 import com.tzb.safeguard.data.fall.repository.FallRiskRepository
 import com.tzb.safeguard.data.model.Device
 import com.tzb.safeguard.data.model.ElderInfo
+import com.tzb.safeguard.data.model.EventListData
 import com.tzb.safeguard.data.model.LiveSdkSession
 import com.tzb.safeguard.data.model.RiskEvent
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
@@ -43,6 +44,26 @@ class HomeViewModel(
 
     init { load() }
 
+    /** 从消息页返回等场景下只刷新事件列表，不重载视频流与其他状态。 */
+    fun refreshEvents() {
+        viewModelScope.launch {
+            val elderId = repo.getCurrentElderId().getOrElse { return@launch }
+            val events = repo.getEvents(elderId = elderId).getOrElse { return@launch }
+            val latest = _state.value as? UiState.Success ?: return@launch
+            _state.value = UiState.Success(
+                latest.data.copy(
+                    pendingWarnings = fraudWarnings(events).filter {
+                        it.status == "open" || it.status == "acknowledged"
+                    },
+                    recentWarnings = fraudWarnings(events).take(3),
+                )
+            )
+        }
+    }
+
+    private fun fraudWarnings(events: EventListData): List<RiskEvent> =
+        events.events.filter { it.type == "fraud_suspected" }
+
     fun load() {
         viewModelScope.launch {
             _state.value = UiState.Loading
@@ -54,7 +75,6 @@ class HomeViewModel(
             val events = repo.getEvents(elderId = elder.elder_id).getOrElse {
                 return@launch fail(it)
             }
-            val fraudWarnings = events.events.filter { it.type == "fraud_suspected" }
             val selected = devices.devices.firstOrNull { it.online } ?: devices.devices.firstOrNull()
             _state.value = UiState.Success(
                 HomeData(
@@ -62,10 +82,10 @@ class HomeViewModel(
                     devices = devices.devices,
                     selectedDevice = selected,
                     streamLoading = selected != null,
-                    pendingWarnings = fraudWarnings.filter {
+                    pendingWarnings = fraudWarnings(events).filter {
                         it.status == "open" || it.status == "acknowledged"
                     },
-                    recentWarnings = fraudWarnings.take(3),
+                    recentWarnings = fraudWarnings(events).take(3),
                 )
             )
             launch { loadFallRisk(elder.elder_id) }
