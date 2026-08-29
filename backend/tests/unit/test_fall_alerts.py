@@ -86,9 +86,7 @@ async def test_recovery_rearms_and_cooldown_absorbs_flapping() -> None:
     await controller.observe(elder_user_id="elder-1", overview=_overview("critical"))
     assert len(sink.events) == 2
     assert sink.events[1].risk_level == "CRITICAL"
-    assert (
-        sink.events[0].source_event_id != sink.events[1].source_event_id
-    )
+    assert sink.events[0].source_event_id != sink.events[1].source_event_id
 
 
 @pytest.mark.asyncio

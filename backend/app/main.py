@@ -162,9 +162,7 @@ def create_app(
         else None
     )
     fall_alert_controller = (
-        FallAlertController(risk_event_repository)
-        if risk_event_repository is not None
-        else None
+        FallAlertController(risk_event_repository) if risk_event_repository is not None else None
     )
     fraud_session_repository = FraudSessionRepository(database) if database is not None else None
     llm_api_key = (
