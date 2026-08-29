@@ -32,6 +32,7 @@ from app.infrastructure.external.ys7.pcm_relay import AppPcmRelaySource
 from app.infrastructure.external.ys7.signal_listener import Ys7SignalListener
 from app.infrastructure.raw_signal_store import RawSignalStore
 from app.infrastructure.realtime_events import RealtimeEventBroker
+from app.modules.fall.fall_alerts import FallAlertController
 from app.modules.fall.ports import FallRiskSource
 from app.modules.fall.service import FallRiskService
 from app.modules.fraud.audio import SpeechRecognizer, StreamingSpeechRecognizer
@@ -158,6 +159,11 @@ def create_app(
     risk_event_repository = (
         RiskEventRepository(database, realtime_broker=realtime_event_broker)
         if database is not None
+        else None
+    )
+    fall_alert_controller = (
+        FallAlertController(risk_event_repository)
+        if risk_event_repository is not None
         else None
     )
     fraud_session_repository = FraudSessionRepository(database) if database is not None else None
@@ -379,6 +385,7 @@ def create_app(
     application.state.ys7_pcm_relay = pcm_relay
     application.state.cognitive_collector = cognitive_collector
     application.state.cognitive_overview_service = cognitive_overview_service
+    application.state.fall_alert_controller = fall_alert_controller
     application.state.realtime_event_broker = realtime_event_broker
     application.state.ys7_api_client = ys7_api_client
     application.state.visual_event_store = visual_event_store

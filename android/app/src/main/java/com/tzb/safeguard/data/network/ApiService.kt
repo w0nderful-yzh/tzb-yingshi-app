@@ -51,6 +51,10 @@ interface ApiService {
         @Body body: StatusPatch
     ): ApiResponse<EmptyData>
 
+    /** 家属删除消息：软删除为 RESOLVED + RETRACTED。 */
+    @DELETE("api/v1/events/{event_id}")
+    suspend fun deleteEvent(@Path("event_id") eventId: String): ApiResponse<EmptyData>
+
     /** TODO 后端：向设备播报提醒或发起家属外呼，当前返回 501。 */
     @POST("api/v1/events/{event_id}/intervention-reminder")
     suspend fun sendInterventionReminder(

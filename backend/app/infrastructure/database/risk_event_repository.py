@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
@@ -10,6 +11,7 @@ from app.infrastructure.database.models import (
 )
 from app.infrastructure.database.session import Database
 from app.infrastructure.realtime_events import RealtimeEventBroker, RealtimeRiskEvent
+from app.modules.fall.ports import FallRiskEventWrite
 from app.modules.fraud.latency import latency_stage
 from app.modules.fraud.ports import FraudRiskEventWrite
 
@@ -206,3 +208,66 @@ class RiskEventRepository:
                     verification_status="RETRACTED",
                 )
             )
+
+    async def upsert_fall_event(self, event: FallRiskEventWrite) -> None:
+        """Persist a FALL_SUSPECTED episode event and broadcast it to the App."""
+        alert_level = {
+            "MEDIUM": "REMINDER",
+            "HIGH": "WARNING",
+            "CRITICAL": "EMERGENCY",
+        }.get(event.risk_level, "REMINDER")
+        elder_user_id = uuid.UUID(event.elder_user_id) if event.elder_user_id else None
+        statement = (
+            insert(RiskEventModel)
+            .values(
+                source="FALL_ENGINE",
+                source_event_id=event.source_event_id,
+                elder_user_id=elder_user_id,
+                external_device_id=None,
+                device_id=None,
+                event_type="FALL_SUSPECTED",
+                risk_level=event.risk_level,
+                alert_level=alert_level,
+                status="OPEN",
+                confidence=event.confidence,
+                summary=event.summary,
+                occurred_at=event.occurred_at,
+                received_at=event.received_at,
+                evidence=event.evidence,
+                model_name=event.model_name,
+                model_version=event.model_version,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[RiskEventModel.source, RiskEventModel.source_event_id],
+            )
+            .returning(
+                RiskEventModel.id,
+                RiskEventModel.elder_user_id,
+                RiskEventModel.external_device_id,
+                RiskEventModel.event_type,
+                RiskEventModel.alert_level,
+                RiskEventModel.status,
+                RiskEventModel.summary,
+                RiskEventModel.occurred_at,
+            )
+        )
+        async with self._database.session_factory() as session, session.begin():
+            persisted = (await session.execute(statement)).first()
+        if persisted is None:
+            return
+        if self._realtime_broker is None or persisted.elder_user_id is None:
+            return
+        await self._realtime_broker.publish(
+            RealtimeRiskEvent(
+                event_id=str(persisted.id),
+                elder_user_id=persisted.elder_user_id,
+                event_type=persisted.event_type,
+                level=persisted.alert_level,
+                title=str(event.evidence.get("state_label") or "疑似跌倒"),
+                summary=event.summary,
+                device_id=persisted.external_device_id or "",
+                occurred_at=persisted.occurred_at,
+                status=persisted.status,
+                verification_status=None,
+            )
+        )

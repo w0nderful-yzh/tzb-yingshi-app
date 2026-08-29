@@ -47,19 +47,42 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
             }
             repo.getEvents(elderId = elderId)
                 .onSuccess { data ->
-                    val fraudEvents = data.events.filter { it.type == "fraud_suspected" }
-                    val visible = when (filter) {
-                        AlertFilter.ALL -> fraudEvents.filter { it.verification_status != "retracted" }
-                        AlertFilter.PREDICTION -> fraudEvents.filter { it.status == "open" }
-                        AlertFilter.INTERVENTION -> fraudEvents.filter { it.status == "acknowledged" }
-                        AlertFilter.SYSTEM -> fraudEvents.filter {
-                            it.status == "resolved" || it.status == "false_alarm"
-                        }
-                    }
-                    val unread = fraudEvents.count { it.status == "open" }
-                    _state.value = UiState.Success(AlertsData(filter, visible, unread))
+                    _allEvents = data.events.filter { it.type == "fraud_suspected" || it.type == "fall_suspected" }
+                    _state.value = UiState.Success(AlertsData(filter, applyFilter(filter), unreadCount()))
                 }
                 .onFailure { _state.value = UiState.Error(it.message ?: "加载失败") }
+        }
+    }
+
+    /** 删除单条消息（后端软删除）；失败时提示但不移除本地条目。 */
+    fun deleteEvent(eventId: String) {
+        viewModelScope.launch {
+            repo.deleteEvent(eventId)
+                .onSuccess {
+                    _allEvents = _allEvents.filterNot { it.event_id == eventId }
+                    _state.value = UiState.Success(AlertsData(filter, applyFilter(filter), unreadCount()))
+                }
+                .onFailure {
+                    _state.value = UiState.Error(it.message ?: "删除失败")
+                }
+        }
+    }
+
+    private var _allEvents: List<RiskEvent> = emptyList()
+
+    private fun unreadCount(): Int = _allEvents.count { it.status == "open" }
+
+    private fun applyFilter(f: AlertFilter): List<RiskEvent> = when (f) {
+        AlertFilter.ALL -> _allEvents.filter { it.verification_status != "retracted" }
+        AlertFilter.PREDICTION -> _allEvents.filter {
+            it.status == "open" && it.verification_status != "retracted"
+        }
+        AlertFilter.INTERVENTION -> _allEvents.filter {
+            it.status == "acknowledged" && it.verification_status != "retracted"
+        }
+        AlertFilter.SYSTEM -> _allEvents.filter {
+            (it.status == "resolved" || it.status == "false_alarm") &&
+                it.verification_status != "retracted"
         }
     }
 }

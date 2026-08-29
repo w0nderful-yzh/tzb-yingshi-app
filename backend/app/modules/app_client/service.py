@@ -505,6 +505,43 @@ class AppClientService:
         )
         return EmptyData()
 
+    async def delete_event(
+        self,
+        identity: AppIdentity,
+        event_id: str,
+        *,
+        idempotency_key: str,
+    ) -> EmptyData:
+        """家属删除消息：软删除为 RESOLVED + RETRACTED，保留审计记录。"""
+        event = await self._authorized_event(identity, event_id)
+        existing = await self._session.scalar(
+            select(EventActionModel).where(EventActionModel.idempotency_key == idempotency_key)
+        )
+        if existing is not None:
+            if existing.risk_event_id != event.id:
+                raise HTTPException(status_code=409, detail="idempotency key conflict")
+            return EmptyData()
+        previous_status = event.status
+        evidence = dict(event.evidence or {})
+        evidence["verification_status"] = "RETRACTED"
+        event.status = "RESOLVED"
+        event.evidence = evidence
+        event.version += 1
+        self._session.add(
+            EventActionModel(
+                risk_event_id=event.id,
+                actor_user_id=identity.user.id,
+                action_type="RESOLVE",
+                previous_status=previous_status,
+                new_status="RESOLVED",
+                note="家属删除该消息",
+                idempotency_key=idempotency_key,
+                action_metadata={"deleted": True},
+            )
+        )
+        await self._session.commit()
+        return EmptyData()
+
     async def list_devices(self, elder: UserModel) -> DeviceListData:
         devices = list(
             (

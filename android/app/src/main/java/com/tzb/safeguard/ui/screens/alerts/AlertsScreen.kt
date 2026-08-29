@@ -20,17 +20,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,6 +68,7 @@ fun AlertsScreen(
     vm: AlertsViewModel = appViewModel { AlertsViewModel(ServiceLocator.repository) },
 ) {
     val state by vm.state.collectAsState()
+    var pendingDelete by remember { mutableStateOf<RiskEvent?>(null) }
     Scaffold(
         modifier = Modifier.statusBarsPadding(),
         bottomBar = {
@@ -103,28 +111,54 @@ fun AlertsScreen(
             }
             StateBox(state, vm::load, Modifier.fillMaxSize()) { data ->
                 if (data.events.isEmpty()) {
-                    EmptyBox(if (data.filter == AlertFilter.ALL) "暂无诈骗风险预测" else "该分类下暂无消息")
+                    EmptyBox(if (data.filter == AlertFilter.ALL) "暂无风险消息" else "该分类下暂无消息")
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(data.events, key = { it.event_id }) { event ->
-                            PredictionMessageCard(event) {
-                                navController.navigate(Routes.alertDetail(event.event_id))
-                            }
+                            PredictionMessageCard(
+                                event,
+                                onClick = {
+                                    navController.navigate(Routes.alertDetail(event.event_id))
+                                },
+                                onDelete = { pendingDelete = event },
+                            )
                         }
                     }
                 }
             }
         }
     }
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除消息") },
+            text = { Text("删除后该消息不再显示（后端保留处置审计记录）。确定删除吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteEvent(target.event_id)
+                    pendingDelete = null
+                }) { Text("删除", color = Color(0xFFD92D20)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
-private fun PredictionMessageCard(event: RiskEvent, onClick: () -> Unit) {
+private fun PredictionMessageCard(
+    event: RiskEvent,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val frame = event.evidence_frames.lastOrNull()
-    val title = event.fraud_state_label ?: "诈骗风险预警"
+    val title = event.fraud_state_label?.takeIf { it.isNotBlank() }
+        ?: event.title.ifBlank { "风险预警" }
+    val imageUrl = frame?.image_url ?: event.evidence_image_url
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(15.dp),
@@ -152,23 +186,35 @@ private fun PredictionMessageCard(event: RiskEvent, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(formatTime(event.occurred_at), color = TextSecondary, fontSize = 12.sp)
+                IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "删除消息",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
             }
-            Spacer(Modifier.size(9.dp))
-            EvidenceImage(
-                imageUrl = frame?.image_url ?: event.evidence_image_url,
-                timestamp = formatTime(frame?.captured_at ?: event.occurred_at).removePrefix("今天 "),
-                modifier = Modifier.fillMaxWidth().aspectRatio(2.15f),
-            )
-            Spacer(Modifier.size(8.dp))
+            if (!imageUrl.isNullOrBlank()) {
+                Spacer(Modifier.size(9.dp))
+                EvidenceImage(
+                    imageUrl = imageUrl,
+                    timestamp = formatTime(frame?.captured_at ?: event.occurred_at).removePrefix("今天 "),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(2.15f),
+                )
+                Spacer(Modifier.size(8.dp))
+            }
             Text(
-                "预测原因：${event.summary.ifBlank { "多模态证据显示诈骗风险正在上升" }}",
+                "风险原因：${event.summary.ifBlank { "多模态证据显示风险状态需要关注" }}",
                 color = TextSecondary,
                 fontSize = 13.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "位置：${event.location.ifBlank { "摄像头 ${event.device_id}" }}",
+                "位置：${event.location.ifBlank {
+                    if (event.device_id.isBlank()) "家中摄像头" else "摄像头 ${event.device_id}"
+                }}",
                 color = TextSecondary,
                 fontSize = 13.sp,
                 maxLines = 1,

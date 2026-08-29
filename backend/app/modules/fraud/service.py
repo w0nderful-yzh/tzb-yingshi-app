@@ -204,7 +204,8 @@ class FraudSessionService:
             for item in evidence:
                 session.llm_evidence[str(item["evidence_id"])] = dict(item)
             risk = await self._snapshot(session)
-            if risk.state != "S0_NORMAL":
+            # S1 待观察多为环境噪声产生的弱证据，不进入正式消息链路。
+            if risk.state_index >= 2:
                 await self._persist(risk)
             await self._persist_session(session)
             return risk
@@ -505,7 +506,8 @@ class FraudSessionService:
             isinstance(stability, dict) and stability.get("preliminary_created")
         )
         if not preliminary_created:
-            if risk.state != "S0_NORMAL":
+            # S1 待观察不写正式事件：环境噪声/闲聊即可触发，避免消息堆积。
+            if risk.state_index >= 2:
                 with latency_stage("event_persist"):
                     await self._persist(risk)
             return

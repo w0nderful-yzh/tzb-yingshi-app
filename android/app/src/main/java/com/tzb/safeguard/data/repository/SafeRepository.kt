@@ -94,6 +94,10 @@ class SafeRepository(
     suspend fun patchEventStatus(eventId: String, status: String, note: String = ""): Result<Unit> =
         call { api.patchEventStatus(eventId, StatusPatch(status, note)) }.map { }
 
+    /** 家属端删除消息（后端软删除为 RESOLVED + RETRACTED）。 */
+    suspend fun deleteEvent(eventId: String): Result<Unit> =
+        call { api.deleteEvent(eventId) }.map { }
+
     suspend fun sendInterventionReminder(eventId: String): Result<Unit> =
         call { api.sendInterventionReminder(eventId, InterventionReminder()) }.map { }
 

@@ -144,6 +144,19 @@ async def get_event(
     return ApiResponse(data=result, request_id=get_request_id(request))
 
 
+@router.delete("/events/{event_id}", response_model=ApiResponse[EmptyData])
+async def delete_event(
+    request: Request,
+    event_id: str,
+    session: DatabaseSession,
+    idempotency_key: IdempotencyHeader,
+    identity: CurrentIdentity,
+) -> ApiResponse[EmptyData]:
+    service = _service(request, session)
+    result = await service.delete_event(identity, event_id, idempotency_key=idempotency_key)
+    return ApiResponse(data=result, request_id=get_request_id(request))
+
+
 @router.post("/events/{event_id}/confirm", response_model=ApiResponse[EmptyData])
 async def confirm_event(
     request: Request,

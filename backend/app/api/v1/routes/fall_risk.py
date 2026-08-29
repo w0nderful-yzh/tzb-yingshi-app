@@ -1,3 +1,4 @@
+import contextlib
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Query, Request
@@ -32,8 +33,14 @@ async def get_fall_risk_overview(
     elder = await resolver.resolve_elder(identity, elder_id)
     external_elder_id = elder.external_subject or str(elder.id)
     service: FallRiskService = request.app.state.fall_risk_service
+    overview = await service.get_overview(elder_id=external_elder_id)
+    fall_alerts = getattr(request.app.state, "fall_alert_controller", None)
+    if fall_alerts is not None:
+        # 事件写入失败不影响风险状态返回；失败细节由控制器日志记录。
+        with contextlib.suppress(Exception):
+            await fall_alerts.observe(elder_user_id=str(elder.id), overview=overview)
     return ApiResponse(
-        data=await service.get_overview(elder_id=external_elder_id),
+        data=overview,
         request_id=get_request_id(request),
     )
 
