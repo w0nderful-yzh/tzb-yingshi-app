@@ -363,7 +363,7 @@ private fun FallRiskSummaryCard(overview: FallRiskOverview?, onClick: () -> Unit
                 Icon(Icons.Filled.WatchLater, contentDescription = null, tint = Primary)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("跌倒风险预测", fontWeight = FontWeight.SemiBold)
+                    Text("跌倒风险监测", fontWeight = FontWeight.SemiBold)
                     Text(
                         "雷达+摄像头多模态监测",
                         color = TextSecondary,
@@ -451,7 +451,7 @@ private fun PsychologySummaryCard(state: UiState<PsychologyOverview>, onClick: (
             Icon(Icons.Filled.Psychology, contentDescription = null, tint = Primary)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("心理健康评估", fontWeight = FontWeight.SemiBold)
+                Text("心理与认知评估", fontWeight = FontWeight.SemiBold)
                 Text("基于摄像头面部行为特征", color = TextSecondary, fontSize = 12.sp)
             }
             Text(status, color = TextSecondary, fontSize = 12.sp)
