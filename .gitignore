@@ -17,6 +17,7 @@ local.properties
 
 # Python
 .venv/
+.venv-multimodal/
 venv/
 __pycache__/
 *.py[cod]
