@@ -62,7 +62,9 @@ class HomeViewModel(
     }
 
     private fun fraudWarnings(events: EventListData): List<RiskEvent> =
-        events.events.filter { it.type == "fraud_suspected" }
+        events.events.filter {
+            it.type == "fraud_suspected" && it.verification_status != "retracted"
+        }
 
     fun load() {
         viewModelScope.launch {
