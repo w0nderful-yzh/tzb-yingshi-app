@@ -62,8 +62,7 @@ home_detection_pkg/
 在本目录（`home_detection_pkg/`）下：
 
 ```bash
-python -m service.psychology_worker_main \
-    --subject-key u-elder-001 --loop --capture-mode opensdk
+python -m service.psychology_worker_main --subject-key u-elder-001 --loop --capture-mode opensdk
 ```
 
 - `--subject-key` **必须与 Backend 该 elder 的 `external_subject` 一致**，否则

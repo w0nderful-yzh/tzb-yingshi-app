@@ -177,10 +177,7 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
 
     Spacer(Modifier.height(10.dp))
     Text(
-        "AI估计存在一定误差，建议结合日常表现及正式量表综合判断。" +
-            overview.disclaimer.ifBlank {
-                "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
-            },
+        "AI估计存在误差，仅供日常关怀参考，不构成认知障碍或医疗诊断。",
         style = MaterialTheme.typography.bodySmall,
         color = TextSecondary,
     )

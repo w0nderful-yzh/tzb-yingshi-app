@@ -1,7 +1,7 @@
 """Internal contracts shared by the Cognitive Collector and Worker."""
 
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ class CognitiveInferenceJob(BaseModel):
     expires_at: datetime
 
 
-class CognitiveState(StrEnum):
+class CognitiveState(str, Enum):  # noqa: UP042 - Python 3.10 worker compatibility.
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -58,13 +58,13 @@ class CognitiveState(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
-class CognitiveDataQuality(StrEnum):
+class CognitiveDataQuality(str, Enum):  # noqa: UP042 - Python 3.10 worker compatibility.
     USABLE = "usable"
     LIMITED = "limited"
     INSUFFICIENT = "insufficient"
 
 
-class CognitiveAttentionLevel(StrEnum):
+class CognitiveAttentionLevel(str, Enum):  # noqa: UP042 - Python 3.10 worker compatibility.
     NONE = "none"
     MILD = "mild"
     MODERATE = "moderate"
