@@ -29,6 +29,7 @@ async def test_collector_publishes_16khz_mono_pcm16_job_without_asr(tmp_path) ->
     )
     await collector.start()
     try:
+        assert collector.attach(subject_key="elder-001", session_id="guard-001") is True
         accepted = collector.push(
             subject_key="elder-001",
             device_id="camera-001",
@@ -52,6 +53,81 @@ async def test_collector_publishes_16khz_mono_pcm16_job_without_asr(tmp_path) ->
         assert wav_file.getframerate() == 16_000
         assert wav_file.getnchannels() == 1
         assert wav_file.getsampwidth() == 2
+
+
+@pytest.mark.asyncio
+async def test_guard_detach_below_minimum_writes_insufficient_data(tmp_path) -> None:
+    collector = CognitiveAudioCollector(
+        runtime_root=tmp_path,
+        enabled=True,
+        min_speech_seconds=0.04,
+        target_speech_seconds=0.08,
+        max_session_seconds=1.0,
+        cooldown_seconds=0.0,
+        voice_detector=lambda _frame: True,
+    )
+    await collector.start()
+    try:
+        assert (
+            collector.push(
+                subject_key="elder-001",
+                device_id="camera-001",
+                pcm=b"\x01\x00" * (FRAME_BYTES // 2),
+                sample_rate=16_000,
+            )
+            is False
+        )
+        assert collector.attach(subject_key="elder-001", session_id="guard-001") is True
+        assert (
+            collector.push(
+                subject_key="elder-001",
+                device_id="camera-001",
+                pcm=b"\x01\x00" * (FRAME_BYTES // 2),
+                sample_rate=16_000,
+            )
+            is True
+        )
+        await collector.detach(subject_key="elder-001")
+    finally:
+        await collector.stop()
+
+    snapshot = CognitiveResultStore(tmp_path).read_latest("elder-001")
+    assert snapshot is not None
+    assert snapshot.status == "insufficient_data"
+    assert snapshot.effective_speech_seconds == pytest.approx(0.02)
+    assert not list((tmp_path / "inbox").glob("*.wav"))
+
+
+@pytest.mark.asyncio
+async def test_guard_detach_at_minimum_seals_job_without_stopping_worker(tmp_path) -> None:
+    collector = CognitiveAudioCollector(
+        runtime_root=tmp_path,
+        enabled=True,
+        min_speech_seconds=0.04,
+        target_speech_seconds=0.08,
+        max_session_seconds=1.0,
+        cooldown_seconds=0.0,
+        voice_detector=lambda _frame: True,
+    )
+    await collector.start()
+    try:
+        assert collector.attach(subject_key="elder-001", session_id="guard-001") is True
+        collector.push(
+            subject_key="elder-001",
+            device_id="camera-001",
+            pcm=b"\x01\x00" * (FRAME_BYTES // 2 * 2),
+            sample_rate=16_000,
+        )
+        await collector.detach(subject_key="elder-001")
+        assert collector.is_attached("elder-001") is False
+        assert collector._task is not None  # noqa: SLF001 - Worker/Collector stays resident
+    finally:
+        await collector.stop()
+
+    store = CognitiveResultStore(tmp_path)
+    manifests = list(store.inbox_dir.glob("*.json"))
+    assert len(manifests) == 1
+    assert store.read_job(manifests[0]).effective_speech_seconds == pytest.approx(0.04)
 
 
 def test_processing_snapshot_preserves_latest_completed(tmp_path) -> None:

@@ -1,0 +1,106 @@
+from datetime import datetime, timezone
+
+import pytest
+
+from app.modules.psychology.cognitive.mapping import map_cognitive_snapshot
+from app.modules.psychology.cognitive.result_store import CognitiveResultStore
+from app.modules.psychology.cognitive.schemas import (
+    CognitiveAssessmentSnapshot,
+    CognitiveDataQuality,
+    CognitiveState,
+)
+from app.modules.psychology.cognitive.service import CognitiveOverviewService
+
+UTC_TZ = timezone.utc  # noqa: UP017 - match the Python 3.10 Cognitive worker.
+
+
+def _snapshot(
+    *,
+    assessment_id: str,
+    status: str,
+    score: float | None = None,
+    speech_seconds: float = 120.0,
+) -> CognitiveAssessmentSnapshot:
+    now = datetime.now(UTC_TZ)
+    return CognitiveAssessmentSnapshot.model_validate(
+        {
+            "assessment_id": assessment_id,
+            "subject_key": "elder-001",
+            "session_id": f"session-{assessment_id}",
+            "status": status,
+            "window_started_at": now,
+            "window_ended_at": now if status != "processing" else None,
+            "effective_speech_seconds": speech_seconds,
+            "estimated_mmse_score": score,
+            "audio_window_count": 11 if score is not None else 0,
+            "completed_at": now if status != "processing" else None,
+        }
+    )
+
+
+def test_completed_snapshot_maps_score_without_risk_level() -> None:
+    result = map_cognitive_snapshot(
+        _snapshot(assessment_id="completed", status="completed", score=23.4)
+    )
+    payload = result.model_dump(mode="json")
+
+    assert result.assessment_state is CognitiveState.COMPLETED
+    assert result.estimated_mmse_score == 23.4
+    assert result.data_quality is CognitiveDataQuality.USABLE
+    assert result.source_modality == "voice_acoustic"
+    assert "risk_level" not in payload
+    assert "认知障碍或医疗诊断" in result.disclaimer
+
+
+@pytest.mark.asyncio
+async def test_processing_overview_keeps_latest_completed(tmp_path) -> None:
+    store = CognitiveResultStore(tmp_path)
+    store.write_snapshot(_snapshot(assessment_id="completed", status="completed", score=22.8))
+    store.write_snapshot(
+        _snapshot(
+            assessment_id="processing",
+            status="processing",
+            speech_seconds=18.0,
+        )
+    )
+
+    result = await CognitiveOverviewService(store).get_overview(subject_key="elder-001")
+
+    assert result.assessment_state is CognitiveState.PROCESSING
+    assert result.estimated_mmse_score is None
+    assert result.latest_completed is not None
+    assert result.latest_completed.estimated_mmse_score == 22.8
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("insufficient_data", CognitiveState.INSUFFICIENT_DATA),
+        ("failed", CognitiveState.FAILED),
+    ],
+)
+def test_non_completed_states_remain_non_diagnostic(
+    status: str,
+    expected: CognitiveState,
+) -> None:
+    result = map_cognitive_snapshot(
+        _snapshot(
+            assessment_id=status,
+            status=status,
+            speech_seconds=30.0,
+        )
+    )
+
+    assert result.assessment_state is expected
+    assert result.estimated_mmse_score is None
+    assert "risk_level" not in result.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_missing_snapshot_returns_unavailable(tmp_path) -> None:
+    result = await CognitiveOverviewService(CognitiveResultStore(tmp_path)).get_overview(
+        subject_key="elder-001"
+    )
+
+    assert result.assessment_state is CognitiveState.UNAVAILABLE
+    assert result.updated_at is None

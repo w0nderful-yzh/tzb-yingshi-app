@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -8,6 +9,9 @@ from app.modules.fall.ports import FallRiskSourceError, GuardSessionControl
 from app.modules.fall.source_schemas import GuardCapabilitySourceStatus, GuardSessionSourceStatus
 from app.modules.guarding.psychology_observation import PsychologyObservationController
 from app.modules.guarding.schemas import CapabilityStatus, GuardianSessionStatus, LifecycleState
+from app.modules.psychology.cognitive.ports import CognitiveCollectionControl
+
+logger = logging.getLogger(__name__)
 
 
 class GuardianSessionService:
@@ -16,10 +20,12 @@ class GuardianSessionService:
         *,
         fall_control: GuardSessionControl | None,
         psychology: PsychologyObservationController,
+        cognitive: CognitiveCollectionControl | None,
         fraud_monitoring_enabled: bool,
     ) -> None:
         self._fall_control = fall_control
         self._psychology = psychology
+        self._cognitive = cognitive
         self._fraud_monitoring_enabled = fraud_monitoring_enabled
         self._lock = asyncio.Lock()
         self._active = False
@@ -48,6 +54,14 @@ class GuardianSessionService:
                         self._session_id = self._fall_status.session_id
                 except (FallRiskSourceError, ValueError):
                     self._fall_status = None
+            if self._cognitive is not None and self._session_id is not None:
+                try:
+                    self._cognitive.attach(
+                        subject_key=subject_key,
+                        session_id=self._session_id,
+                    )
+                except (OSError, ValueError) as exc:
+                    logger.warning("cognitive collector attach failed: %s", type(exc).__name__)
             return self._build_status()
 
     async def stop(self) -> GuardianSessionStatus:
@@ -60,6 +74,11 @@ class GuardianSessionService:
                 except (FallRiskSourceError, ValueError):
                     self._fall_status = None
             await self._psychology.stop()
+            if self._cognitive is not None and self._subject_key is not None:
+                try:
+                    await self._cognitive.detach(subject_key=self._subject_key)
+                except (OSError, ValueError) as exc:
+                    logger.warning("cognitive collector detach failed: %s", type(exc).__name__)
             self._active = False
             self._session_id = None
             self._subject_key = None

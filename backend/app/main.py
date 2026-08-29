@@ -47,6 +47,8 @@ from app.modules.fraud.visual_event_store import VisualEventStore
 from app.modules.guarding.psychology_observation import PsychologyObservationController
 from app.modules.guarding.service import GuardianSessionService
 from app.modules.psychology.cognitive.collector import CognitiveAudioCollector
+from app.modules.psychology.cognitive.result_store import CognitiveResultStore
+from app.modules.psychology.cognitive.service import CognitiveOverviewService
 from app.modules.psychology.ports import PsychologySource
 from app.modules.psychology.service import PsychologyService
 from app.workers.fraud_llm_review_worker import FraudLlmReviewWorker
@@ -129,9 +131,26 @@ def create_app(
         psychology_service,
         interval_seconds=runtime_settings.psychology_observation_interval_seconds,
     )
+    cognitive_collector = CognitiveAudioCollector(
+        runtime_root=runtime_settings.cognitive_runtime_dir,
+        enabled=runtime_settings.cognitive_enabled,
+        queue_maxsize=runtime_settings.cognitive_queue_maxsize,
+        min_speech_seconds=runtime_settings.cognitive_min_speech_seconds,
+        target_speech_seconds=runtime_settings.cognitive_target_speech_seconds,
+        max_session_seconds=runtime_settings.cognitive_max_session_seconds,
+        cooldown_seconds=runtime_settings.cognitive_cooldown_seconds,
+        job_ttl_seconds=runtime_settings.cognitive_job_ttl_seconds,
+        vad_mode=runtime_settings.cognitive_vad_mode,
+    )
+    cognitive_overview_service = CognitiveOverviewService(
+        CognitiveResultStore(runtime_settings.cognitive_runtime_dir)
+        if runtime_settings.cognitive_enabled
+        else None
+    )
     guardian_session_service = GuardianSessionService(
         fall_control=fall_source_client,
         psychology=psychology_observation,
+        cognitive=cognitive_collector,
         fraud_monitoring_enabled=(
             runtime_settings.ys7_media_enabled and runtime_settings.sensevoice_enabled
         ),
@@ -240,17 +259,6 @@ def create_app(
     pcm_relay = AppPcmRelaySource(
         device_id=runtime_settings.ys7_device_serial,
         queue_maxsize=runtime_settings.ys7_pcm_relay_queue_maxsize,
-    )
-    cognitive_collector = CognitiveAudioCollector(
-        runtime_root=runtime_settings.cognitive_runtime_dir,
-        enabled=runtime_settings.cognitive_enabled,
-        queue_maxsize=runtime_settings.cognitive_queue_maxsize,
-        min_speech_seconds=runtime_settings.cognitive_min_speech_seconds,
-        target_speech_seconds=runtime_settings.cognitive_target_speech_seconds,
-        max_session_seconds=runtime_settings.cognitive_max_session_seconds,
-        cooldown_seconds=runtime_settings.cognitive_cooldown_seconds,
-        job_ttl_seconds=runtime_settings.cognitive_job_ttl_seconds,
-        vad_mode=runtime_settings.cognitive_vad_mode,
     )
     media_stream_source = (
         pcm_relay if runtime_settings.ys7_media_source == "app_relay" else FfmpegPcmStreamSource()
@@ -370,6 +378,7 @@ def create_app(
     application.state.ys7_media_worker = media_worker
     application.state.ys7_pcm_relay = pcm_relay
     application.state.cognitive_collector = cognitive_collector
+    application.state.cognitive_overview_service = cognitive_overview_service
     application.state.realtime_event_broker = realtime_event_broker
     application.state.ys7_api_client = ys7_api_client
     application.state.visual_event_store = visual_event_store

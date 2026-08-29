@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class _PcmEnvelope:
     subject_key: str
+    session_id: str
     device_id: str
     pcm: bytes
     received_at: datetime
@@ -42,7 +43,7 @@ class _CollectionSession:
     assessment_id: str
     subject_key: str
     session_id: str
-    device_id: str
+    device_id: str | None
     started_at: datetime
     last_received_at: datetime
     speech_pcm: bytearray = field(default_factory=bytearray)
@@ -87,6 +88,9 @@ class CognitiveAudioCollector:
         self._cooldown_seconds = cooldown_seconds
         self._job_ttl_seconds = job_ttl_seconds
         self._sessions: dict[str, _CollectionSession] = {}
+        self._attached_subjects: dict[str, str] = {}
+        self._pending_chunks: dict[str, int] = {}
+        self._pending_drained: dict[str, asyncio.Event] = {}
         self._cooldown_until: dict[str, datetime] = {}
         self._task: asyncio.Task[None] | None = None
         self.chunks_received = 0
@@ -112,7 +116,83 @@ class CognitiveAudioCollector:
         with suppress(asyncio.CancelledError):
             await task
         self._sessions.clear()
+        self._attached_subjects.clear()
+        self._pending_chunks.clear()
+        for event in self._pending_drained.values():
+            event.set()
+        self._pending_drained.clear()
         logger.info("Cognitive Collector stopped; in-memory audio discarded")
+
+    def attach(self, *, subject_key: str, session_id: str) -> bool:
+        """Enable exactly one assessment for the subject's guard session."""
+
+        if not self._enabled or self._task is None:
+            return False
+        current_session_id = self._attached_subjects.get(subject_key)
+        if current_session_id == session_id:
+            return True
+        if current_session_id is not None:
+            logger.warning(
+                "Cognitive subject already attached subject=%s session=%s",
+                subject_key,
+                current_session_id,
+            )
+            return False
+
+        now = datetime.now(UTC_TZ)
+        assessment_id = f"cog-{uuid.uuid4().hex}"
+        session = _CollectionSession(
+            assessment_id=assessment_id,
+            subject_key=subject_key,
+            session_id=session_id,
+            device_id=None,
+            started_at=now,
+            last_received_at=now,
+        )
+        self._store.write_snapshot(
+            CognitiveAssessmentSnapshot(
+                assessment_id=assessment_id,
+                subject_key=subject_key,
+                session_id=session_id,
+                status="processing",
+                window_started_at=now,
+                effective_speech_seconds=0.0,
+            )
+        )
+        self._attached_subjects[subject_key] = session_id
+        self._cooldown_until.pop(subject_key, None)
+        self._sessions[subject_key] = session
+        logger.info(
+            "Cognitive collection attached assessment=%s subject=%s session=%s",
+            assessment_id,
+            subject_key,
+            session_id,
+        )
+        return True
+
+    async def detach(self, *, subject_key: str) -> None:
+        """Stop accepting PCM, drain accepted chunks, then seal or mark insufficient."""
+
+        session_id = self._attached_subjects.pop(subject_key, None)
+        if session_id is None:
+            return
+        if self._pending_chunks.get(subject_key, 0) > 0:
+            event = self._pending_drained.setdefault(subject_key, asyncio.Event())
+            await event.wait()
+
+        session = self._sessions.get(subject_key)
+        if session is None or session.session_id != session_id:
+            self._pending_drained.pop(subject_key, None)
+            return
+        ended_at = datetime.now(UTC_TZ)
+        if session.voiced_frames >= self._min_voiced_frames:
+            self._publish(session, ended_at)
+        else:
+            self._write_insufficient(session, ended_at)
+        self._pending_drained.pop(subject_key, None)
+
+    def is_attached(self, subject_key: str) -> bool:
+        return subject_key in self._attached_subjects
 
     def push(
         self,
@@ -126,23 +206,30 @@ class CognitiveAudioCollector:
 
         if not self._enabled or self._task is None:
             return False
+        session_id = self._attached_subjects.get(subject_key)
+        if session_id is None:
+            return False
         if sample_rate != SAMPLE_RATE:
             raise ValueError("Cognitive PCM sample rate must be 16000 Hz")
         if not pcm or len(pcm) % SAMPLE_WIDTH_BYTES != 0:
             raise ValueError("Cognitive PCM must contain signed 16-bit mono samples")
         envelope = _PcmEnvelope(
             subject_key=subject_key,
+            session_id=session_id,
             device_id=device_id,
             pcm=pcm,
             received_at=datetime.now(UTC_TZ),
         )
         if self._queue.full():
             try:
-                self._queue.get_nowait()
+                dropped = self._queue.get_nowait()
                 self._queue.task_done()
+                self._mark_chunk_processed(dropped)
                 self.chunks_dropped += 1
             except asyncio.QueueEmpty:
                 pass
+        self._pending_chunks[subject_key] = self._pending_chunks.get(subject_key, 0) + 1
+        self._pending_drained.setdefault(subject_key, asyncio.Event()).clear()
         self._queue.put_nowait(envelope)
         self.chunks_received += 1
         return True
@@ -162,15 +249,14 @@ class CognitiveAudioCollector:
                 logger.exception("Cognitive Collector rejected PCM chunk")
             finally:
                 self._queue.task_done()
+                self._mark_chunk_processed(envelope)
 
     def _consume(self, envelope: _PcmEnvelope) -> None:
         session = self._sessions.get(envelope.subject_key)
-        if session is None:
-            cooldown_until = self._cooldown_until.get(envelope.subject_key)
-            if cooldown_until is not None and envelope.received_at < cooldown_until:
-                return
-            session = self._new_session(envelope)
-            self._sessions[envelope.subject_key] = session
+        if session is None or session.session_id != envelope.session_id:
+            return
+        if session.device_id is None:
+            session.device_id = envelope.device_id
         elif session.device_id != envelope.device_id:
             logger.warning(
                 "Ignoring Cognitive PCM from device %s while session %s uses %s",
@@ -195,35 +281,10 @@ class CognitiveAudioCollector:
         if self._elapsed_seconds(session, envelope.received_at) >= self._max_session_seconds:
             self._finish_at_timeout(session, envelope.received_at)
 
-    def _new_session(self, envelope: _PcmEnvelope) -> _CollectionSession:
-        session_id = f"cog-session-{uuid.uuid4().hex}"
-        assessment_id = f"cog-{uuid.uuid4().hex}"
-        session = _CollectionSession(
-            assessment_id=assessment_id,
-            subject_key=envelope.subject_key,
-            session_id=session_id,
-            device_id=envelope.device_id,
-            started_at=envelope.received_at,
-            last_received_at=envelope.received_at,
-        )
-        self._store.write_snapshot(
-            CognitiveAssessmentSnapshot(
-                assessment_id=assessment_id,
-                subject_key=envelope.subject_key,
-                session_id=session_id,
-                status="processing",
-                window_started_at=envelope.received_at,
-                effective_speech_seconds=0.0,
-            )
-        )
-        logger.info(
-            "Cognitive collection started assessment=%s subject=%s",
-            assessment_id,
-            envelope.subject_key,
-        )
-        return session
-
     def _publish(self, session: _CollectionSession, ended_at: datetime) -> None:
+        if session.device_id is None:
+            self._write_insufficient(session, ended_at)
+            return
         effective_seconds = session.voiced_frames * FRAME_MS / 1_000
         wav_bytes = self._build_wav(bytes(session.speech_pcm))
         job = CognitiveInferenceJob(
@@ -260,13 +321,16 @@ class CognitiveAudioCollector:
         if session.voiced_frames >= self._min_voiced_frames:
             self._publish(session, ended_at)
             return
+        self._write_insufficient(session, ended_at)
+
+    def _write_insufficient(self, session: _CollectionSession, ended_at: datetime) -> None:
         effective_seconds = session.voiced_frames * FRAME_MS / 1_000
         self._store.write_snapshot(
             CognitiveAssessmentSnapshot(
                 assessment_id=session.assessment_id,
                 subject_key=session.subject_key,
                 session_id=session.session_id,
-                status="failed",
+                status="insufficient_data",
                 window_started_at=session.started_at,
                 window_ended_at=ended_at,
                 effective_speech_seconds=effective_seconds,
@@ -280,7 +344,7 @@ class CognitiveAudioCollector:
         )
         self._complete_session(session, ended_at)
         logger.warning(
-            "Cognitive collection failed assessment=%s: insufficient speech %.1fs",
+            "Cognitive collection insufficient assessment=%s effective_speech=%.1fs",
             session.assessment_id,
             effective_seconds,
         )
@@ -292,9 +356,19 @@ class CognitiveAudioCollector:
 
     def _complete_session(self, session: _CollectionSession, ended_at: datetime) -> None:
         self._sessions.pop(session.subject_key, None)
+        if self._attached_subjects.get(session.subject_key) == session.session_id:
+            self._attached_subjects.pop(session.subject_key, None)
         self._cooldown_until[session.subject_key] = ended_at + timedelta(
             seconds=self._cooldown_seconds
         )
+
+    def _mark_chunk_processed(self, envelope: _PcmEnvelope) -> None:
+        remaining = max(0, self._pending_chunks.get(envelope.subject_key, 0) - 1)
+        if remaining == 0:
+            self._pending_chunks.pop(envelope.subject_key, None)
+            self._pending_drained.setdefault(envelope.subject_key, asyncio.Event()).set()
+        else:
+            self._pending_chunks[envelope.subject_key] = remaining
 
     def _sweep_stale_jobs(self, now: datetime) -> None:
         cutoff = now.timestamp() - self._job_ttl_seconds

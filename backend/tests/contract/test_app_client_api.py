@@ -33,6 +33,7 @@ def test_app_phase_one_routes_are_exposed() -> None:
         "/api/v1/fall-risk/camera-monitoring/stop",
         "/api/v1/fall-risk/camera-monitoring/status",
         "/api/v1/psychology/overview",
+        "/api/v1/psychology/cognitive-overview",
     } <= set(paths)
 
 
@@ -51,6 +52,9 @@ def test_app_business_routes_require_bearer_authentication() -> None:
         {"HTTPBearer": []}
     ]
     assert schema["paths"]["/api/v1/psychology/overview"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/api/v1/psychology/cognitive-overview"]["get"]["security"] == [
+        {"HTTPBearer": []}
+    ]
     assert schema["paths"]["/api/v1/ws/tickets"]["post"]["security"] == [{"HTTPBearer": []}]
     parameters = schema["paths"]["/api/v1/users/me"]["get"].get("parameters", [])
     assert all(item["name"] != "X-Demo-Role" for item in parameters)

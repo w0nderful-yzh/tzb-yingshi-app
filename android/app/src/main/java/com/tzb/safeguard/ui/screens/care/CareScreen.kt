@@ -1,6 +1,8 @@
 package com.tzb.safeguard.ui.screens.care
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.tzb.safeguard.ServiceLocator
+import com.tzb.safeguard.data.psychology.model.CognitiveCompletedReference
+import com.tzb.safeguard.data.psychology.model.CognitiveOverview
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.data.psychology.model.PsychologyCompletedReference
 import com.tzb.safeguard.ui.components.AppCard
@@ -50,6 +55,7 @@ fun CareScreen(
     },
 ) {
     val psychologyState by viewModel.psychologyState.collectAsState()
+    val cognitiveState by viewModel.cognitiveState.collectAsState()
     Scaffold(modifier = Modifier.statusBarsPadding(), containerColor = BgPage) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Row(
@@ -59,13 +65,140 @@ fun CareScreen(
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                 }
-                Text("心理健康评估", style = MaterialTheme.typography.headlineLarge)
+                Text("心理与认知评估", style = MaterialTheme.typography.headlineLarge)
             }
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 PsychologyAssessmentCard(psychologyState, viewModel::loadPsychologyOverview)
+                CognitiveAssessmentCard(cognitiveState, viewModel::loadCognitiveOverview)
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
+}
+
+@Composable
+private fun CognitiveAssessmentCard(
+    state: UiState<CognitiveOverview>,
+    onRetry: () -> Unit,
+) {
+    AppCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Psychology,
+                contentDescription = null,
+                tint = Primary,
+                modifier = Modifier.size(34.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("认知状态辅助评估", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "基于日常语音声学特征",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        when (state) {
+            UiState.Loading -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("正在读取最近一次认知评估状态")
+                }
+            }
+            is UiState.Error -> {
+                Text("认知状态辅助评估服务暂不可用")
+                Text(state.message, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                TextButton(onClick = onRetry) { Text("重新加载") }
+            }
+            is UiState.Success -> CognitiveAssessmentContent(state.data)
+        }
+    }
+}
+
+@Composable
+private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
+    val stateLabel = cognitiveStateLabel(overview.assessment_state)
+    DataRow("当前状态", stateLabel)
+    DataRow("分析来源", "语音声学特征")
+
+    if (overview.assessment_state == "completed") {
+        overview.estimated_mmse_score?.let { score ->
+            Spacer(Modifier.height(12.dp))
+            Text("AI辅助MMSE估计", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "${"%.1f".format(score)} / 30",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        DataRow("数据质量", dataQualityLabel(overview.data_quality))
+        overview.updated_at?.takeIf { it.isNotBlank() }?.let {
+            DataRow("最近评估时间", formatAssessmentTime(it))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(overview.evidence_summary, style = MaterialTheme.typography.bodyMedium)
+    } else {
+        Spacer(Modifier.height(8.dp))
+        Text(overview.evidence_summary, style = MaterialTheme.typography.bodyMedium)
+        DataRow("数据质量", dataQualityLabel(overview.data_quality))
+        if (overview.assessment_state == "processing") {
+            overview.latest_completed?.let { completed ->
+                Spacer(Modifier.height(14.dp))
+                Text("上一轮辅助评估", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "新一轮语音采集中，以下为上一轮已完成结果",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+                Spacer(Modifier.height(8.dp))
+                PreviousCognitiveCompletedContent(completed)
+            }
+        }
+    }
+
+    Spacer(Modifier.height(10.dp))
+    Text(
+        overview.disclaimer.ifBlank {
+            "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+    )
+}
+
+@Composable
+private fun PreviousCognitiveCompletedContent(completed: CognitiveCompletedReference) {
+    completed.estimated_mmse_score?.let { score ->
+        Text(
+            "AI辅助MMSE估计 ${"%.1f".format(score)} / 30",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+    DataRow("分析来源", "语音声学特征")
+    DataRow("数据质量", dataQualityLabel(completed.data_quality))
+    completed.updated_at?.takeIf { it.isNotBlank() }?.let {
+        DataRow("最近评估时间", formatAssessmentTime(it))
+    }
+}
+
+private fun cognitiveStateLabel(state: String): String = when (state) {
+    "processing" -> "正在采集语音资料"
+    "completed" -> "辅助评估已完成"
+    "failed" -> "本次分析未完成"
+    "insufficient_data" -> "有效语音资料不足"
+    else -> "服务暂不可用"
 }
 
 @Composable

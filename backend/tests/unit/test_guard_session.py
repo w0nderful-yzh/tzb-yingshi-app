@@ -66,6 +66,21 @@ class FakePsychologyService:
         return unavailable_overview()
 
 
+class FakeCognitiveControl:
+    enabled = True
+
+    def __init__(self) -> None:
+        self.attached: list[tuple[str, str]] = []
+        self.detached: list[str] = []
+
+    def attach(self, *, subject_key: str, session_id: str) -> bool:
+        self.attached.append((subject_key, session_id))
+        return True
+
+    async def detach(self, *, subject_key: str) -> None:
+        self.detached.append(subject_key)
+
+
 @pytest.mark.asyncio
 async def test_guard_start_and_stop_are_idempotent_and_do_not_stop_radar() -> None:
     fall = FakeFallControl()
@@ -73,9 +88,11 @@ async def test_guard_start_and_stop_are_idempotent_and_do_not_stop_radar() -> No
         FakePsychologyService(),
         interval_seconds=3600,
     )
+    cognitive = FakeCognitiveControl()
     service = GuardianSessionService(
         fall_control=fall,
         psychology=psychology,
+        cognitive=cognitive,
         fraud_monitoring_enabled=True,
     )
 
@@ -87,6 +104,7 @@ async def test_guard_start_and_stop_are_idempotent_and_do_not_stop_radar() -> No
     assert second.active is True
     assert second.camera_preview_managed_by_guard is False
     assert second.radar_worker.state is LifecycleState.RUNNING
+    assert cognitive.attached == [("elder-001", first.session_id)]
 
     stopped = await service.stop()
     stopped_again = await service.stop()
@@ -94,6 +112,7 @@ async def test_guard_start_and_stop_are_idempotent_and_do_not_stop_radar() -> No
     assert fall.stops == 1
     assert stopped.active is False
     assert stopped_again.active is False
+    assert cognitive.detached == ["elder-001"]
     # The upstream stop contract is a guard-session stop; Radar worker status
     # remains independent and no Radar /stop method exists on this control.
     assert not hasattr(fall, "stop_radar")
@@ -109,6 +128,7 @@ async def test_radar_unavailable_keeps_other_guard_capabilities_active() -> None
     service = GuardianSessionService(
         fall_control=fall,
         psychology=psychology,
+        cognitive=FakeCognitiveControl(),
         fraud_monitoring_enabled=True,
     )
 

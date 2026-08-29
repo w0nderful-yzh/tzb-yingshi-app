@@ -1,11 +1,17 @@
 """Internal contracts shared by the Cognitive Collector and Worker."""
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-CognitiveAssessmentStatus = Literal["processing", "completed", "failed"]
+CognitiveAssessmentStatus = Literal[
+    "processing",
+    "completed",
+    "failed",
+    "insufficient_data",
+]
 
 
 class CognitiveAssessmentSnapshot(BaseModel):
@@ -42,3 +48,46 @@ class CognitiveInferenceJob(BaseModel):
     sample_width_bytes: Literal[2] = 2
     created_at: datetime
     expires_at: datetime
+
+
+class CognitiveState(StrEnum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    INSUFFICIENT_DATA = "insufficient_data"
+    UNAVAILABLE = "unavailable"
+
+
+class CognitiveDataQuality(StrEnum):
+    USABLE = "usable"
+    LIMITED = "limited"
+    INSUFFICIENT = "insufficient"
+
+
+class CognitiveAssessmentWindow(BaseModel):
+    started_at: datetime
+    ended_at: datetime | None = None
+
+
+class CognitiveCompletedReference(BaseModel):
+    assessment_window: CognitiveAssessmentWindow
+    estimated_mmse_score: float
+    data_quality: CognitiveDataQuality
+    source_modality: Literal["voice_acoustic"] = "voice_acoustic"
+    evidence_summary: str
+    updated_at: datetime
+    disclaimer: str
+
+
+class CognitiveOverview(BaseModel):
+    source_status: CognitiveState
+    assessment_state: CognitiveState
+    data_quality: CognitiveDataQuality
+    source_modality: Literal["voice_acoustic"] = "voice_acoustic"
+    assessment_window: CognitiveAssessmentWindow | None = None
+    estimated_mmse_score: float | None = None
+    evidence_summary: str
+    guidance: str
+    updated_at: datetime | None = None
+    disclaimer: str
+    latest_completed: CognitiveCompletedReference | None = None

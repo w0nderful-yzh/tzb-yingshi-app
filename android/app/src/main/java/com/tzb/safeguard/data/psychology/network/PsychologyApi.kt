@@ -1,6 +1,7 @@
 package com.tzb.safeguard.data.psychology.network
 
 import com.tzb.safeguard.data.model.ApiResponse
+import com.tzb.safeguard.data.psychology.model.CognitiveOverview
 import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import retrofit2.http.GET
 import retrofit2.http.Query
@@ -10,5 +11,10 @@ interface PsychologyApi {
     suspend fun getOverview(
         @Query("elder_id") elderId: String? = null,
     ): ApiResponse<PsychologyOverview>
+
+    @GET("api/v1/psychology/cognitive-overview")
+    suspend fun getCognitiveOverview(
+        @Query("elder_id") elderId: String? = null,
+    ): ApiResponse<CognitiveOverview>
 }
 
