@@ -160,7 +160,7 @@
 | Psychology logs | `home_detection_pkg/logs/`、`home_out/` | 心理 worker | 排障/审计 | 可能含设备、时间窗、评分等敏感信息 |
 | 萤石 raw signal | `backend/storage/ys7/raw/` | 可选 signal worker | 信号审计 | 仅开启萤石信号链路后产生 |
 
-运行产物中所有 camera/radar processing latency 字段当前为 null，仓库没有正式端到端告警延迟记录。因此提交材料不应给出端到端告警时延数字。
+运行产物中所有 camera/radar processing latency 字段当前为 null，仓库没有正式端到端告警延迟记录。开发机真机运行日志（2112 条，仓库外）统计的模块处理延迟：Camera P50 109 ms / P95 188 ms；Radar P50 2.66 ms / P95 16.54 ms；0.53 s 是模型新结果更新周期（45 帧窗、步长 8、15 Hz），不是计算耗时。端到端"动作→App"时延仍以拍摄当天实测为准，提交材料引用模块延迟时应注明日志来源与统计口径。
 
 ## 7. 模型与大型外部资源事实
 
