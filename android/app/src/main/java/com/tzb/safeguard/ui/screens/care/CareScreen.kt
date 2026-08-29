@@ -134,11 +134,16 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
     if (overview.assessment_state == "completed") {
         overview.estimated_mmse_score?.let { score ->
             Spacer(Modifier.height(12.dp))
-            Text("AI辅助MMSE估计", style = MaterialTheme.typography.titleSmall)
+            Text("参考评估分数", style = MaterialTheme.typography.titleSmall)
             Text(
                 "${"%.1f".format(score)} / 30",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "AI辅助MMSE估计",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
             )
         }
         overview.attention_level?.let { level ->
@@ -172,15 +177,10 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
 
     Spacer(Modifier.height(10.dp))
     Text(
-        "AI估计存在一定误差，建议结合日常表现及正式量表综合判断。",
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondary,
-    )
-    Spacer(Modifier.height(6.dp))
-    Text(
-        overview.disclaimer.ifBlank {
-            "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
-        },
+        "AI估计存在一定误差，建议结合日常表现及正式量表综合判断。" +
+            overview.disclaimer.ifBlank {
+                "AI辅助认知状态评估仅供日常关怀参考，不构成认知障碍或医疗诊断。"
+            },
         style = MaterialTheme.typography.bodySmall,
         color = TextSecondary,
     )
@@ -236,7 +236,7 @@ private fun PsychologyAssessmentCard(
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("心理健康评估", style = MaterialTheme.typography.titleLarge)
+                Text("抑郁风险评估", style = MaterialTheme.typography.titleLarge)
                 Text(
                     "基于近期摄像头面部行为特征",
                     style = MaterialTheme.typography.bodySmall,
@@ -299,12 +299,6 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
         overview.updated_at?.takeIf { it.isNotBlank() }?.let {
             DataRow("最近评估时间", formatAssessmentTime(it))
         }
-        Spacer(Modifier.height(6.dp))
-        Text("健康建议", style = MaterialTheme.typography.titleSmall)
-        Text(
-            overview.guidance.ifBlank { "结果仅供日常关怀参考，建议结合日常沟通和专业评估" },
-            style = MaterialTheme.typography.bodyMedium,
-        )
         Spacer(Modifier.height(8.dp))
         Text(
             overview.disclaimer.ifBlank { "该结果仅供日常关怀参考，不构成心理或医疗诊断" },
