@@ -74,6 +74,7 @@ def log(message: str) -> None:
 
 # ---------- 萤石 live URL（stdlib，无 httpx 依赖） ----------
 
+
 def _post_form(url: str, data: dict[str, object]) -> dict:
     body = urllib.parse.urlencode(data).encode("utf-8")
     request = urllib.request.Request(url, data=body, method="POST")
@@ -84,9 +85,7 @@ def _post_form(url: str, data: dict[str, object]) -> dict:
 def _ys7_token(app_key: str, app_secret: str) -> str:
     payload = _post_form(TOKEN_URL, {"appKey": app_key, "appSecret": app_secret})
     if str(payload.get("code")) != "200":
-        raise RuntimeError(
-            f"YS7 token failed: code={payload.get('code')} msg={payload.get('msg')}"
-        )
+        raise RuntimeError(f"YS7 token failed: code={payload.get('code')} msg={payload.get('msg')}")
     token = payload.get("data", {}).get("accessToken")
     if not isinstance(token, str) or not token:
         raise RuntimeError("YS7 token response missing accessToken")
@@ -138,6 +137,7 @@ def fetch_live_url(
 
 # ---------- FPS 探测（只决定抓流时长） ----------
 
+
 def probe_stream_fps(url: str, ffprobe: str | None) -> float | None:
     ffprobe = ffprobe or shutil.which("ffprobe")
     if not ffprobe:
@@ -145,9 +145,16 @@ def probe_stream_fps(url: str, ffprobe: str | None) -> float | None:
     try:
         completed = subprocess.run(
             [
-                ffprobe, "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=avg_frame_rate,r_frame_rate",
-                "-of", "json", url,
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=avg_frame_rate,r_frame_rate",
+                "-of",
+                "json",
+                url,
             ],
             capture_output=True,
             text=True,
@@ -179,6 +186,7 @@ def resolve_window_seconds(args: argparse.Namespace, url: str) -> float:
 
 
 # ---------- 窗口捕获（模式 url / tempfile） ----------
+
 
 def _run_openface(openface_exe: Path, source: str, out_dir: Path) -> subprocess.Popen:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -242,14 +250,27 @@ def capture_window_url(
 
 
 def capture_window_tempfile(
-    openface_exe: Path, ffmpeg: str, url: str, out_dir: Path, window_seconds: float,
+    openface_exe: Path,
+    ffmpeg: str,
+    url: str,
+    out_dir: Path,
+    window_seconds: float,
     openface_timeout_seconds: float = DEFAULT_OPENFACE_TIMEOUT_SECONDS,
 ) -> Path | None:
     chunk = out_dir / "chunk.ts"
     record = subprocess.run(
         [
-            ffmpeg, "-y", "-i", url, "-t", str(window_seconds),
-            "-c", "copy", "-f", "mpegts", str(chunk),
+            ffmpeg,
+            "-y",
+            "-i",
+            url,
+            "-t",
+            str(window_seconds),
+            "-c",
+            "copy",
+            "-f",
+            "mpegts",
+            str(chunk),
         ],
         capture_output=True,
         text=True,
@@ -298,9 +319,7 @@ def capture_window_opensdk(
     log(f"  [{window_label}] capture.end file={video.name} bytes={video.stat().st_size}")
     log(f"  [{window_label}] openface.begin timeout_seconds={args.openface_timeout_seconds:.1f}")
     process = _run_openface(openface_exe, str(video), out_dir)
-    _finish_openface(
-        process, terminate=False, timeout_seconds=args.openface_timeout_seconds
-    )
+    _finish_openface(process, terminate=False, timeout_seconds=args.openface_timeout_seconds)
     log(f"  [{window_label}] openface.end returncode={process.returncode}")
     csvs = sorted(out_dir.glob("*.csv"))
     log(f"  [{window_label}] csv.count={len(csvs)}")
@@ -316,6 +335,7 @@ def capture_window_opensdk(
 
 
 # ---------- CSV → 1800 帧 clip ----------
+
 
 def _tail_1800(matrix):
     """取尾部 1800 帧，不足零填充（模型输入语义：clip 恒为 1800 帧）。"""
@@ -340,9 +360,7 @@ def _max_faces_per_frame(csv_path: Path) -> int:
     return int(frame.groupby("frame")["face_id"].nunique().max())
 
 
-def build_clip_from_csv(
-    csv_path: Path, *, min_valid_frames: int, work_dir: Path
-) -> tuple | None:
+def build_clip_from_csv(csv_path: Path, *, min_valid_frames: int, work_dir: Path) -> tuple | None:
     """CSV → (kps, gaze, pose, AUs) 各 (1800, ...) 的 clip；失败返回 None。"""
     from openface_to_mccl import build_feature_matrix, load_elderly_csv
 
@@ -350,8 +368,10 @@ def build_clip_from_csv(
         elder_csv = work_dir / "elderly.csv"
         completed = subprocess.run(
             [
-                sys.executable, str(SCRIPTS_DIR / "extract_elderly.py"),
-                str(csv_path), str(elder_csv),
+                sys.executable,
+                str(SCRIPTS_DIR / "extract_elderly.py"),
+                str(csv_path),
+                str(elder_csv),
             ],
             cwd=str(PACKAGE_ROOT),
             capture_output=True,
@@ -420,6 +440,7 @@ def run_mccl(accumulated: list[tuple], requested_device: str = "cpu") -> float:
 
 # ---------- 快照 ----------
 
+
 def build_snapshot(
     *,
     assessment_id: str,
@@ -447,6 +468,7 @@ def build_snapshot(
 
 # ---------- 运行时清理 ----------
 
+
 def sweep_runtime(runtime_dir: Path, max_age_seconds: float = 3600.0) -> None:
     if not runtime_dir.is_dir():
         return
@@ -461,47 +483,78 @@ def sweep_runtime(runtime_dir: Path, max_age_seconds: float = 3600.0) -> None:
 
 # ---------- 主流程 ----------
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="流式心理评估 worker：攒满 7 个 1800 帧 clip 判断一次"
     )
-    parser.add_argument("--subject-key", required=True,
-                        help="必须与 Backend 该 elder 的 external_subject 一致")
+    parser.add_argument(
+        "--subject-key", required=True, help="必须与 Backend 该 elder 的 external_subject 一致"
+    )
     parser.add_argument("--device-serial", default=os.environ.get("APP_YS7_DEVICE_SERIAL"))
     parser.add_argument("--ys7-app-key", default=os.environ.get("APP_YS7_APP_KEY"))
     parser.add_argument("--ys7-app-secret", default=os.environ.get("APP_YS7_APP_SECRET"))
     parser.add_argument("--channel-no", type=int, default=1)
     parser.add_argument("--live-protocol", choices=("rtmp", "hls"), default="hls")
     parser.add_argument("--quality", type=int, default=2)
-    parser.add_argument("--window-seconds", type=float, default=None,
-                        help="抓流时长；默认按探测 fps 换算 1800/fps + margin")
+    parser.add_argument(
+        "--window-seconds",
+        type=float,
+        default=None,
+        help="抓流时长；默认按探测 fps 换算 1800/fps + margin",
+    )
     parser.add_argument("--window-margin-seconds", type=float, default=8.0)
     parser.add_argument("--clips-per-assessment", type=int, default=7)
     parser.add_argument("--min-valid-frames", type=int, default=1500)
-    parser.add_argument("--openface-exe",
-                        default=os.environ.get("OPENFACE_EXE") or os.environ.get("PSYCH_OPENFACE_EXE"))
-    parser.add_argument("--openface-timeout-seconds", type=float,
-                        default=DEFAULT_OPENFACE_TIMEOUT_SECONDS,
-                        help="单个离线视频允许 OpenFace 处理的最长时间；默认 300 秒")
+    parser.add_argument(
+        "--openface-exe",
+        default=os.environ.get("OPENFACE_EXE") or os.environ.get("PSYCH_OPENFACE_EXE"),
+    )
+    parser.add_argument(
+        "--openface-timeout-seconds",
+        type=float,
+        default=DEFAULT_OPENFACE_TIMEOUT_SECONDS,
+        help="单个离线视频允许 OpenFace 处理的最长时间；默认 300 秒",
+    )
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg"))
     parser.add_argument("--ffprobe", default=shutil.which("ffprobe"))
-    parser.add_argument("--store-root", type=Path,
-                        default=PACKAGE_ROOT / "home_out" / "latest")
+    parser.add_argument("--store-root", type=Path, default=PACKAGE_ROOT / "home_out" / "latest")
     parser.add_argument("--runtime-dir", type=Path, default=PACKAGE_ROOT / ".runtime")
-    parser.add_argument("--capture-mode", choices=("auto", "url", "tempfile", "opensdk"), default="auto",
-                        help="auto = 配好 sdk-root 时优先 opensdk，否则 url；本设备标准 openlive 流不可用，"
-                             "实际只有 opensdk 能取到真实画面")
-    parser.add_argument("--sdk-root", default=os.environ.get("PSYCH_YS7_SDK_ROOT"),
-                        help="EZVIZ OpenSDK 根目录（含 lib/win64/OpenNetStream.dll）")
-    parser.add_argument("--stream-type", type=int, default=2,
-                        help="OpenSDK 码流：1 主码流 / 2 子码流（C6c 实测两者均约 13fps）")
-    parser.add_argument("--source-fps", type=float, default=15.0,
-                        help="OpenSDK 模式抓流帧率（转码后恒定帧率），仅决定抓流时长")
-    parser.add_argument("--ys7-verify-code", default=os.environ.get("APP_YS7_DEVICE_VERIFY_CODE", ""),
-                        help="设备验证码；未加密设备可留空（SDK 端用占位值）")
+    parser.add_argument(
+        "--capture-mode",
+        choices=("auto", "url", "tempfile", "opensdk"),
+        default="auto",
+        help="auto = 配好 sdk-root 时优先 opensdk，否则 url；本设备标准 openlive 流不可用，"
+        "实际只有 opensdk 能取到真实画面",
+    )
+    parser.add_argument(
+        "--sdk-root",
+        default=os.environ.get("PSYCH_YS7_SDK_ROOT"),
+        help="EZVIZ OpenSDK 根目录（含 lib/win64/OpenNetStream.dll）",
+    )
+    parser.add_argument(
+        "--stream-type",
+        type=int,
+        default=2,
+        help="OpenSDK 码流：1 主码流 / 2 子码流（C6c 实测两者均约 13fps）",
+    )
+    parser.add_argument(
+        "--source-fps",
+        type=float,
+        default=15.0,
+        help="OpenSDK 模式抓流帧率（转码后恒定帧率），仅决定抓流时长",
+    )
+    parser.add_argument(
+        "--ys7-verify-code",
+        default=os.environ.get("APP_YS7_DEVICE_VERIFY_CODE", ""),
+        help="设备验证码；未加密设备可留空（SDK 端用占位值）",
+    )
     parser.add_argument("--stream-retry-attempts", type=int, default=3)
-    parser.add_argument("--mccl-device", default=os.environ.get("PSYCH_MCCL_DEVICE", "cpu"),
-                        help="MCCL device，默认 cpu；GPU 必须显式指定 cuda:0")
+    parser.add_argument(
+        "--mccl-device",
+        default=os.environ.get("PSYCH_MCCL_DEVICE", "cpu"),
+        help="MCCL device，默认 cpu；GPU 必须显式指定 cuda:0",
+    )
     parser.add_argument("--loop", action="store_true")
     return parser.parse_args()
 
@@ -526,7 +579,10 @@ def run_worker(args: argparse.Namespace) -> int:
     if mode == "auto":
         mode = "opensdk" if args.sdk_root else "url"
     if mode == "opensdk":
-        if not args.sdk_root or not Path(args.sdk_root).joinpath("lib", "win64", "OpenNetStream.dll").is_file():
+        if (
+            not args.sdk_root
+            or not Path(args.sdk_root).joinpath("lib", "win64", "OpenNetStream.dll").is_file()
+        ):
             raise SystemExit(
                 f"OpenNetStream.dll 不存在: {args.sdk_root}（用 --sdk-root 或 PSYCH_YS7_SDK_ROOT 指定）"
             )
@@ -536,8 +592,10 @@ def run_worker(args: argparse.Namespace) -> int:
     sweep_runtime(runtime_dir)
 
     store = LatestAssessmentStore(Path(args.store_root))
-    log(f"worker 启动: subject_key={args.subject_key} capture_mode={mode} "
-        f"store={Path(args.store_root)} runtime={runtime_dir}")
+    log(
+        f"worker 启动: subject_key={args.subject_key} capture_mode={mode} "
+        f"store={Path(args.store_root)} runtime={runtime_dir}"
+    )
 
     if mode == "opensdk":
         # 必须先于 OpenSDK 加载 torch，否则 OpenSDK 的 DLL 会让 torch c10.dll 加载失败
@@ -569,7 +627,9 @@ def run_worker(args: argparse.Namespace) -> int:
                         )
                         break
                     except Exception as exc:  # noqa: BLE001
-                        log(f"  取 live URL 失败(尝试 {attempt + 1}/{args.stream_retry_attempts}): {exc}")
+                        log(
+                            f"  取 live URL 失败(尝试 {attempt + 1}/{args.stream_retry_attempts}): {exc}"
+                        )
                         time.sleep(3)
                 if url is None:
                     window_failures += 1
@@ -584,12 +644,14 @@ def run_worker(args: argparse.Namespace) -> int:
             work_dir = runtime_dir / f"psych-{assessment_id}" / f"win-{clip_index}"
             try:
                 if mode == "opensdk":
-                    csv_path = capture_window_opensdk(
-                        openface_exe, args, work_dir, window_seconds
-                    )
+                    csv_path = capture_window_opensdk(openface_exe, args, work_dir, window_seconds)
                 elif mode == "tempfile":
                     csv_path = capture_window_tempfile(
-                        openface_exe, args.ffmpeg, url, work_dir, window_seconds,
+                        openface_exe,
+                        args.ffmpeg,
+                        url,
+                        work_dir,
+                        window_seconds,
                         args.openface_timeout_seconds,
                     )
                 else:
@@ -623,8 +685,10 @@ def run_worker(args: argparse.Namespace) -> int:
                     clip_count=len(accumulated),
                 )
             )
-            log(f"  窗口 {clip_index + 1}/{args.clips_per_assessment} 完成，clip 数={len(accumulated)}"
-                f"（失败窗口 {window_failures}）")
+            log(
+                f"  窗口 {clip_index + 1}/{args.clips_per_assessment} 完成，clip 数={len(accumulated)}"
+                f"（失败窗口 {window_failures}）"
+            )
 
         if len(accumulated) < args.clips_per_assessment:
             log(f"== 本轮凑不满 {args.clips_per_assessment} 个 clip -> insufficient_data ==")
@@ -640,7 +704,9 @@ def run_worker(args: argparse.Namespace) -> int:
             )
         else:
             try:
+                log("== inference.begin ==")
                 score = run_mccl(accumulated, args.mccl_device)
+                log("== inference.end ==")
             except Exception as exc:  # noqa: BLE001
                 log(f"== 模型推理失败 -> failed: {type(exc).__name__}: {exc} ==")
                 store.write(
