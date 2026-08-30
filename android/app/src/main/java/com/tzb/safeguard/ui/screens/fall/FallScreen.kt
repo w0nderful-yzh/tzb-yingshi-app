@@ -241,7 +241,7 @@ private fun sensorColor(status: String): Color = when (status) {
     else -> TextSecondary
 }
 
-private fun sensorLabel(status: String): String = when (status) {
+internal fun sensorLabel(status: String): String = when (status) {
     "available" -> "监测中"
     "degraded" -> "信号一般"
     "not_applicable" -> "不适用"
@@ -256,14 +256,14 @@ private fun sensorLabel(status: String): String = when (status) {
     else -> "未知"
 }
 
-private fun decisionPathLabel(path: String): String = when (path) {
+internal fun decisionPathLabel(path: String): String = when (path) {
     "camera_led_radar_evidence" -> "视觉主判断 · 雷达证据增强"
     "camera_only" -> "视觉监测"
     "radar_only" -> "雷达单模态监测"
     else -> "监测暂不可用"
 }
 
-private fun riskLevelLabel(level: String): String = when (level) {
+internal fun riskLevelLabel(level: String): String = when (level) {
     "critical", "high" -> "高风险"
     "medium" -> "需关注"
     "low" -> "低风险"

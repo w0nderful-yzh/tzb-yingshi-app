@@ -216,7 +216,7 @@ private fun DataRow(label: String, value: String) {
     }
 }
 
-private fun monitoringStatusLabel(status: String): String = when (status) {
+internal fun monitoringStatusLabel(status: String): String = when (status) {
     "running" -> "运行中"
     "starting" -> "启动中"
     "unavailable" -> "未启用"
@@ -224,7 +224,7 @@ private fun monitoringStatusLabel(status: String): String = when (status) {
     else -> "不可用"
 }
 
-private fun disposalLabel(status: String): String = when (status) {
+internal fun disposalLabel(status: String): String = when (status) {
     "open" -> "待处置"
     "acknowledged" -> "处置中"
     "resolved" -> "已完成"

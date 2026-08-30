@@ -200,7 +200,7 @@ private fun PreviousCognitiveCompletedContent(completed: CognitiveCompletedRefer
     }
 }
 
-private fun cognitiveStateLabel(state: String): String = when (state) {
+internal fun cognitiveStateLabel(state: String): String = when (state) {
     "processing" -> "正在采集语音资料"
     "completed" -> "辅助评估已完成"
     "failed" -> "本次分析未完成"
@@ -208,7 +208,7 @@ private fun cognitiveStateLabel(state: String): String = when (state) {
     else -> "服务暂不可用"
 }
 
-private fun cognitiveAttentionLevelLabel(level: String): String = when (level) {
+internal fun cognitiveAttentionLevelLabel(level: String): String = when (level) {
     "none" -> "暂无明显关注"
     "mild" -> "建议关注"
     "moderate" -> "需重点关注"
@@ -348,14 +348,14 @@ private fun DataRow(label: String, value: String) {
     }
 }
 
-private fun dataQualityLabel(quality: String): String = when (quality) {
+internal fun dataQualityLabel(quality: String): String = when (quality) {
     "usable" -> "良好"
     "limited" -> "有限"
     "insufficient" -> "不足"
     else -> "未知"
 }
 
-private fun psychologyRiskLevelLabel(level: String): String = when (level) {
+internal fun psychologyRiskLevelLabel(level: String): String = when (level) {
     "no_risk" -> "暂时无风险"
     "mild" -> "轻度风险"
     "moderate" -> "中度风险"

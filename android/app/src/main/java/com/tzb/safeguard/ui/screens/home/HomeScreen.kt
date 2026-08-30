@@ -400,7 +400,7 @@ private fun FraudRiskSummaryCard(
     }
 }
 
-private fun disposalLabel(status: String): String = when (status) {
+internal fun disposalLabel(status: String): String = when (status) {
     "open" -> "待处置"
     "acknowledged" -> "处置中"
     "resolved" -> "已完成"
@@ -464,14 +464,14 @@ private fun FallRiskRoomRow(room: RoomFallRisk) {
     }
 }
 
-private fun fallOverallLabel(level: String): String = when (level) {
+internal fun fallOverallLabel(level: String): String = when (level) {
     "critical", "high" -> "存在需要关注的跌倒风险"
     "medium" -> "发现风险变化，正在持续监测"
     "normal", "low" -> "各房间正在稳定监测"
     else -> "服务暂不可用"
 }
 
-private fun fallRiskLevelLabel(level: String): String = when (level) {
+internal fun fallRiskLevelLabel(level: String): String = when (level) {
     "critical" -> "紧急"
     "high" -> "高风险"
     "medium" -> "需关注"

@@ -82,5 +82,6 @@ dependencies {
     implementation("io.github.ezviz-open:ezviz-sdk:5.30.2")
     implementation("com.google.code.gson:gson:2.13.2")
 
+    testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
