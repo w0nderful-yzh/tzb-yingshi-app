@@ -171,6 +171,11 @@ fun AlertDetailScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (detail.type == "fall_suspected") {
+                            BigActionButton(
+                                "查看实时画面",
+                                icon = Icons.Filled.PlayArrow,
+                                outlined = true,
+                            ) { navController.navigate(Routes.MONITOR) }
                             if (detail.status == "open") {
                                 BigActionButton("收到预警，立即查看", icon = Icons.Filled.PersonSearch) {
                                     vm.patchStatus("acknowledged")
