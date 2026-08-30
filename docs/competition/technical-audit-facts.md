@@ -80,15 +80,15 @@
 2. 与心理模块关系：认知是 `app/modules/psychology/` 下的新增兄弟包，不共用 `home_detection_pkg` 的批处理工作器，不读写 `home_out` snapshot，OpenFace/MCCL/XGBoost 链路未改动。共用点只有三个：同一守护会话编排器 `GuardianSessionService`（`app/modules/guarding/service.py:57` start 时 attach、`:77` stop 时 detach）、同一个 Care 页面（Android `CareScreen.kt` 两张卡片并列）、同一个路由文件（`app/api/v1/routes/psychology.py:37` 新增 cognitive-overview）。
 3. 输入：唯一模型输入是 Android 上传的 16 kHz/单声道/s16 PCM 侧信道。`POST /api/v1/devices/{id}/audio-pcm` 在推给诈骗 `AppPcmRelaySource` 之后同步调用 `cognitive_collector.push(...)`（`app/api/v1/routes/app_client.py:289`）；无视频、问卷或行为输入，也不依赖 SenseVoice/Paraformer（collector 自带 webrtcvad，`APP_COGNITIVE_VAD_MODE` 默认 2）。注意该路由被 `ys7_media_enabled` + `app_relay` 门控（`app_client.py:275`，否则 503），因此认知采集仍依赖 App 播放器 PCM 上传链路处于开启状态。采集参数：20 ms 帧 VAD 只保留有效语音帧（WAV 为通过帧的拼接，不是连续原音）；有效语音达到 target 120 s（下限 60 s，会话上限 30 min）即发布任务；guard stop 时不足 60 s 写 `insufficient_data`。
 4. 处理流程：主后端进程内 asyncio 任务收集（队列 maxsize 8、满时丢最旧，`collector.py:223`）→ 达标后写 processing snapshot 并把 WAV + job manifest 原子发布到 `runtime/inbox`（先 WAV 后 manifest，`result_store.py:55`）→ worker 每 0.5 s 轮询，`os.replace` 移入 `processing`，librosa 以 16 kHz 载入 → wav2vec2 按 15 s 窗/10 s 步长滑窗回归（尾窗补零），logits 均值反标准化 `score = mean*7.1844 + 23.0280`（`worker.py:103`）→ 校验 0–30 → 写 completed snapshot，删除 WAV 与 manifest。失败码：`audio_missing`、`job_expired`（TTL 默认 1 h）、`inference_failed`、`score_out_of_range`、`insufficient_speech`。
-5. 模型：`Wav2Vec2MmseRunner`（`worker.py:34`）用 HF `AutoModelForAudioClassification`（num_labels=1、problem_type="regression"）+ `AutoFeatureExtractor`，要求特征抽取器 sampling_rate=16000，否则启动报错。模型目录来自 `--model-dir` 或 `COGNITIVE_MODEL_DIR`（未配置则启动失败），帮助文本命名为 "wav2vec2_base_adress"；仓库不含该模型文件。`--device`/`COGNITIVE_DEVICE` 默认 cpu，请求 cuda 而 CUDA 不可用时直接报错。
+5. 模型：`Wav2Vec2MmseRunner`（`worker.py:34`）用 HF `AutoModelForAudioClassification`（num_labels=1、problem_type="regression"）+ `AutoFeatureExtractor`，要求特征抽取器 sampling_rate=16000，否则启动报错。模型目录来自 `--model-dir` 或 `COGNITIVE_MODEL_DIR`（未配置则启动失败），帮助文本命名为 "wav2vec2_base_adress"。模型资产已在本机仓库外目录就位（wav2vec2_base_adress 顶层，HF 格式完整：config.json + model.safetensors + preprocessor_config.json，16 kHz / num_labels=1 / regression），权重不进入 App Git。Worker 与原始推理脚本（cogni_infer_mmse.py）的采样率、15 s 窗/10 s 步长切窗、尾窗补零、do_normalize 与 mean=23.0280/std=7.1844 反标准化口径一致；本机 Python 3.10 CPU 实测 516 s 样例 51 窗推理通过，输出合法 0–30 MMSE 估计值。`--device`/`COGNITIVE_DEVICE` 默认 cpu，请求 cuda 而 CUDA 不可用时直接报错。
 6. 输出：worker 级 snapshot `CognitiveAssessmentSnapshot`（status、estimated_mmse_score、effective_speech_seconds、audio_window_count、window、failure_code 等，`schemas.py:17`）；App 契约 `CognitiveOverview`（`schemas.py:90`）字段为 `source_status/assessment_state`（processing/completed/failed/insufficient_data/unavailable）、`data_quality`（usable/limited/insufficient，完成结果 ≥120 s 为 usable）、`source_modality="voice_acoustic"`、`assessment_window`、`estimated_mmse_score`、`attention_level`（≥27 none、≥24 mild、≥18 moderate、否则 high，`mapping.py:113`）、`evidence_summary`、`guidance`、`updated_at`、`disclaimer`、`latest_completed`。completed 还要求有效语音 ≥60 s、window_count>0、分数有限且在 0–30（`mapping.py:94`）。
 7. 存储：纯文件系统，无数据库表/迁移、无 RiskEvent、无 WebSocket 推送（`infrastructure/` 与 `alembic/` 无 cognitive 引用）。运行目录 `backend/app/modules/psychology/cognitive/runtime/`（`config.py:109` 默认），结构为 `latest/<sha256(subject_key)>.json`、`latest/completed/<sha256(subject_key)>.json`、`inbox/`、`processing/`；文件名哈希方式与心理模块一致，但 snapshot JSON 内含 subject_key 明文字段。
 8. 主后端读取：`GET /api/v1/psychology/cognitive-overview`（bearer 鉴权、可选 elder_id，经 `AppClientService.resolve_elder` 取 `external_subject`，`app/api/v1/routes/psychology.py:37`），`CognitiveOverviewService` 读 latest、非 completed 时补 `latest_completed`。`APP_COGNITIVE_ENABLED=false` 时 service 持 None store，固定返回 unavailable overview（`service.py:22`）。
 9. Android 已接入：`data/psychology/model/CognitiveModels.kt`、`PsychologyApi.kt:15` `@GET("api/v1/psychology/cognitive-overview")`、`PsychologyRepository.kt:30`、`CareViewModel.kt:43`、`CareScreen.kt:79` 认知卡片；DI 组装在 `SafeGuardApp.kt:34`。Care 页标题为“心理与认知评估”，认知卡片展示：当前状态、分析来源“语音声学特征”、completed 时“参考评估分数 x.x / 30（AI辅助MMSE估计）”、辅助关注程度、数据质量、最近评估时间；processing 时展示 `latest_completed` 上一轮结果；底部固定非诊断声明。
 10. 不生成 RiskEvent：全链路不触碰 PostgreSQL，当前实际用途仅是 Care 页面的非诊断辅助观察展示；不触发告警、不进入 WebSocket 事件流。
 11. 依赖与配置变化：collector 复用主后端已有直接依赖 `webrtcvad-wheels`（与诈骗 VAD 同包，`pyproject.toml:18`）；worker 运行时经 importlib 引 torch/transformers/librosa，三者都不是 pyproject 直接依赖（uv.lock 中 transformers 5.14.1、librosa 0.11.0 是 funasr/sensevoice extra 的传递依赖）；worker 代码避免 3.11+ API（`UTC_TZ` 注释）且留有 cpython-310 字节码，说明按 Python 3.10 兼容设计并曾在 3.10 环境运行。新增配置：`APP_COGNITIVE_ENABLED/RUNTIME_DIR/QUEUE_MAXSIZE/MIN_SPEECH_SECONDS/TARGET_SPEECH_SECONDS/MAX_SESSION_SECONDS/COOLDOWN_SECONDS/JOB_TTL_SECONDS/VAD_MODE`（`config.py:108`、`compose.yaml:94`、`.env.example:119`）与 worker 侧 `COGNITIVE_MODEL_DIR/COGNITIVE_DEVICE/COGNITIVE_RUNTIME_ROOT`（`worker.py:277`）。
-12. 启动方式与既有结果文件：心理批处理工作器及其 `home_out` 结构未改动；Compose 仍是 postgres+backend 两个服务，backend 新增 APP_COGNITIVE_* 透传并把 `APP_COGNITIVE_RUNTIME_DIR` 固定为容器内路径（`compose.yaml:95`）；当前 `compose.yaml:122` 存在 `./backend/app:/app/backend/app` 本地开发绑定挂载，该容器内 runtime 目录因此实际落回宿主机仓库路径。根 `.env` 当前没有任何 `APP_COGNITIVE_*` 行，认知采集当前处于关闭状态（代码默认 false）。
-13. 验证状态：仓库内单测覆盖 collector 5 项、worker 2 项（使用 FakeRunner，不含真实 wav2vec2 推理）、overview 映射 6 项、guard attach/detach（`test_guard_session.py:69`）、OpenAPI 契约路径与 bearer security（`test_app_client_api.py:36`、`:55`）；后端全套当前为 **236 passed、3 skipped**（此前审计 213+3）。Android 当前源码树 `assembleDebug` 通过（增量 up-to-date，产物含认知页面代码）。**未完成/未验证**：模型文件不在仓库且无获取说明文档；根 `.env` 未开启开关；`runtime/{inbox,latest,processing}` 均为空目录，无真实推理产物；无 worker 启动脚本；端到端（采集→推理→App 展示）真机证据不存在。`COGNITIVE_COOLDOWN_SECONDS`（默认 900 s）只被写入/清除、从未被读取（`collector.py:94`、`:163`、`:361`），不能表述为“15 分钟冷却已生效”；当前唯一的频控是“每个 subject 同时至多一个采集会话”（attach 冲突返回 False）。
+12. 启动方式与既有结果文件：心理批处理工作器及其 `home_out` 结构未改动；Compose 仍是 postgres+backend 两个服务，backend 新增 APP_COGNITIVE_* 透传并把 `APP_COGNITIVE_RUNTIME_DIR` 固定为容器内路径（`compose.yaml:95`）；当前 `compose.yaml:122` 存在 `./backend/app:/app/backend/app` 本地开发绑定挂载，该容器内 runtime 目录因此实际落回宿主机仓库路径。根 `.env` 已开启 `APP_COGNITIVE_ENABLED=true`（采集 Collector 随 backend 运行）；MMSE Worker 尚未在 `.env` 配置 `COGNITIVE_MODEL_DIR`，需按启动说明手动运行，未运行时 overview 超时显示"认知分析组件未就绪"（mapping.py 35 min 陈旧判定）。
+13. 验证状态：仓库内单测覆盖 collector 5 项、worker 2 项（使用 FakeRunner，不含真实 wav2vec2 推理）、overview 映射 6 项、guard attach/detach（`test_guard_session.py:69`）、OpenAPI 契约路径与 bearer security（`test_app_client_api.py:36`、`:55`）；后端全套当前为 **236 passed、3 skipped**（此前审计 213+3）。Android 当前源码树 `assembleDebug` 通过（增量 up-to-date，产物含认知页面代码）。**未完成/未验证**：MMSE 模型权重不入 Git（资产在仓库外本机目录，已实测单模型推理通过）；`.env` 尚未配置 `COGNITIVE_MODEL_DIR`；`runtime/{inbox,latest,processing}` 均为空目录，尚无经 Worker 的真实推理产物；无 worker 启动脚本；端到端（采集→Worker→App 展示）演示证据需按排查表启动 Worker 后重新验收。`COGNITIVE_COOLDOWN_SECONDS`（默认 900 s）只被写入/清除、从未被读取（`collector.py:94`、`:163`、`:361`），不能表述为“15 分钟冷却已生效”；当前唯一的频控是“每个 subject 同时至多一个采集会话”（attach 冲突返回 False）。
 
 ### 2.9 萤石平台真实边界
 
@@ -104,7 +104,7 @@
 3. Android `assembleDebug` 成功，APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`；第二轮审计增量复核通过，产物已包含认知页面代码。
 4. Radar API 使用当前配置Python可在8010启动；无数据源时 `/health` 返回 `model_loaded=true, radar_connected=false`，`/api/radar/latest` 返回503。该服务随后已停止，未把空数据状态写成真机成功。
 5. Camera/Radar/Psychology的历史 runtime 文件只作为产物结构与字段证据；完整真机演示仍须按正文第17节逐级重新验收。
-6. 认知链路当前只有组件级单测、契约测试与 Android 构建证据；`cognitive/runtime` 为空目录、模型不在仓库、根 `.env` 未开启 `APP_COGNITIVE_ENABLED`，采集→推理→App 展示的端到端真机演示未验证。
+6. 认知链路：组件级单测、契约测试、Android 构建证据齐备；模型资产已在仓库外本机目录就位（HF 格式完整）且本机 Python 3.10 CPU 实测单模型推理通过（合法 0–30 估计值）；`cognitive/runtime` 仍为空目录，采集→Worker→App 展示的端到端演示需配置 `COGNITIVE_MODEL_DIR` 并启动 Worker 后重新验收。
 
 ## 3. 已实现但非默认运行
 
@@ -117,7 +117,7 @@
 | 心理批处理工作器 | 需单独启动 | `home_detection_pkg/service/psychology_worker_main.py`；需 OpenFace、模型、萤石凭据 |
 | 心理只读 HTTP API | 已实现、当前未作为主源 | `home_detection_pkg/service/api.py`；端口由启动命令决定，仓库未固定 |
 | 认知采集 Collector | 已实现、当前关闭 | `APP_COGNITIVE_ENABLED=true` 时随主后端 lifespan 启动（`main.py:344`）；PCM 入口复用 `/devices/{id}/audio-pcm`（需 `app_relay`），需 guard-session attach；根 `.env` 当前未开启 |
-| 认知 MMSE 工作器 | 需单独启动 | `python -m app.modules.psychology.cognitive.worker`；需外部 wav2vec2 模型目录（`COGNITIVE_MODEL_DIR`）与 torch/transformers/librosa 环境 |
+| 认知 MMSE 工作器 | 需单独启动 | `python -m app.modules.psychology.cognitive.worker`；模型资产已在仓库外本机目录就位（wav2vec2_base_adress，HF 格式完整，权重不入 Git），经 `COGNITIVE_MODEL_DIR` 提供；torch/transformers/librosa 环境（Python 3.10 实测可跑） |
 | 萤石服务端云媒体拉流 | 已实现、当前未用 | `APP_YS7_MEDIA_SOURCE` 改为云拉流并安装 FFmpeg/模型；当前是 `app_relay` |
 | 萤石报警轮询/Webhook | 已实现、默认关闭 | `APP_YS7_SIGNAL_ENABLED`/alarm polling；会写 signal inbox、visual events 和 raw JSON |
 | LLM 诈骗复核 | 已实现、默认关闭 | 配置 OpenAI-compatible Base URL/model/key 并启用开关 |
@@ -174,7 +174,7 @@
 | Camera–Radar calibration | `multimodal_engine/calibrations/living_room_grid9_shadow_v0.json` | 已在仓库 | 空间关联退化/无法匹配 | 已包含；换场地应重新标定 |
 | MCCL model 1/2 | `home_detection_pkg/checkpoint/DAIC/current_model1`、`current_model2` | 已在仓库 | PHQ-8 推理失败 | 已包含 |
 | XGBoost | `home_detection_pkg/checkpoint/DAIC/pima.pickle.dat` | 已在仓库 | PHQ-8 回归失败 | 已包含 |
-| wav2vec2 MMSE 模型 | `COGNITIVE_MODEL_DIR`/`--model-dir` 指定的 HF 格式目录（feature extractor 必须 16000 Hz） | 不在仓库 | worker 启动即 FileNotFoundError；cognitive-overview 不会出现 completed | 按模型许可单独附带目录与获取说明 |
+| wav2vec2 MMSE 模型 | `COGNITIVE_MODEL_DIR`/`--model-dir` 指定的 HF 格式目录（feature extractor 必须 16000 Hz） | 仓库外本机目录已就位（wav2vec2_base_adress 顶层，HF 格式完整），权重不进入 App Git | 未配置 `COGNITIVE_MODEL_DIR` 时 worker 启动即 FileNotFoundError；cognitive-overview 不会出现 completed | 提交包不含权重；按模型许可附获取说明或演示机预置 |
 | OpenFace | `OPENFACE_EXE`/`PSYCH_OPENFACE_EXE` 或 `--openface-exe` 指定的 `FeatureExtraction.exe` | 不在仓库；代码未给固定绝对路径 | 无法生成面部特征，assessment 失败 | 不分发本体时提供官方获取与安装说明 |
 | SenseVoiceSmall | FunASR/ModelScope 模型 ID或本地缓存 | 不在仓库 | 最终 ASR unavailable，诈骗链路降级 | 演示机预下载缓存；按模型许可分发 |
 | Paraformer Streaming | FunASR/ModelScope 模型 ID或本地缓存 | 不在仓库 | 无流式 partial；最终 SenseVoice仍可独立工作 | 演示机预下载缓存 |
@@ -239,7 +239,7 @@
 | 5 | §3.2 已验证命令 | pytest 结果更新为 236 passed、3 skipped | 本轮审计实际执行 |
 | 6 | §4 项目目录表 | 加两行：认知采集 Collector（`backend/app/modules/psychology/cognitive/`，随主后端，8000 内）；认知 MMSE 工作器（`worker.py`，无端口，写 runtime 文件，手动 `python -m app.modules.psychology.cognitive.worker`） | `main.py`、`worker.py:292` |
 | 7 | §5 配置说明 | 5.1 补"认知 worker 读 COGNITIVE_* 环境变量与命令行参数，不读根 .env"；新增 APP_COGNITIVE_* 九项（ENABLED/RUNTIME_DIR/QUEUE_MAXSIZE/MIN_SPEECH_SECONDS/TARGET_SPEECH_SECONDS/MAX_SESSION_SECONDS/COOLDOWN_SECONDS/JOB_TTL_SECONDS/VAD_MODE）与 worker 侧 COGNITIVE_MODEL_DIR（必填）/COGNITIVE_DEVICE/COGNITIVE_RUNTIME_ROOT；5.8 关键开关表加 Cognitive Collector 行（默认 false、当前未开启） | `config.py:108-118`、`compose.yaml:94-102`、`.env.example:119-131`、`worker.py:277-286` |
-| 8 | §6.3 模型资源清单 | 加 wav2vec2 MMSE 模型行：HF 目录、feature extractor 必须 16000 Hz、不在仓库、缺失时 worker 启动 FileNotFoundError 且 overview 恒 unavailable | `worker.py:34-77` |
+| 8 | §6.3 模型资源清单 | 加 wav2vec2 MMSE 模型行：HF 目录、feature extractor 必须 16000 Hz、权重不入 Git（资产仓库外就位）、缺失时 worker 启动 FileNotFoundError 且 overview 恒 unavailable | `worker.py:34-77` |
 | 9 | §7 服务启动 | 新增"启动认知 MMSE 工作器"小节（cd backend；设 COGNITIVE_MODEL_DIR；`python -m app.modules.psychology.cognitive.worker --model-dir ... --device cpu`；验证 runtime/latest 与 cognitive-overview）；7.4/7.9 注明 `APP_COGNITIVE_ENABLED=true` 时 collector 随 backend 启动 | `worker.py:292-307`、`main.py:344` |
 | 10 | §13 心理模块部署 | 标题/内容扩展为"心理与认知模块部署"或新增 13.x 认知部署：采集条件（guard attach、VAD mode 2、≥60 s 有效语音、120 s 目标、30 min 上限）、attention_level 映射（≥27 none/≥24 mild/≥18 moderate/else high）、data_quality（≥120 s usable）、四种非完成状态语义；并说明 cooldown 当前未生效（只写不读），不得写成"15 分钟冷却" | `collector.py`、`mapping.py:107-120`、`collector.py:94/163/361` |
 | 11 | §14 Android 客户端 | 14.2 第 9 步改为：Care 页（标题"心理与认知评估"）含抑郁评估与认知评估两张卡片；认知卡片 completed 时显示"参考评估分数 x.x/30（AI辅助MMSE估计）"、辅助关注程度、数据质量、评估时间，processing 时显示上一轮结果；无独立认知页面 | `CareScreen.kt:68`、`:79`、`:129-206` |
@@ -258,4 +258,4 @@
 3. 不得把采集音频写成"连续录音"；WAV 是 VAD 通过帧的拼接。
 4. completed 结果要求 ≥60 s 有效语音且分数在 0–30，否则呈现 insufficient_data/failed，不得伪造分数。
 5. 不得宣称 Compose 启动认知 worker；根 `.env` 未开启 `APP_COGNITIVE_ENABLED` 时，Care 认知卡片显示"服务暂不可用"（unavailable），不得截图声称已出分。
-6. 仓库 runtime 为空、模型不在仓库：在完成真机端到端验证前，不得把认知功能写成"已验证可用"。
+6. 仓库 runtime 为空、权重不入 Git（模型资产在仓库外本机目录已实测可推理）：在完成端到端演示验收前，不得把认知功能写成"已验证可用"。
