@@ -74,6 +74,10 @@ class FallLiveStatusResponse(BaseModel):
     risk_score: float | None = Field(default=None, ge=0, le=1)
     risk_level: RiskLevel | None = None
     positive_votes: int | None = Field(default=None, ge=0)
+    torso_inclination_deg: float | None = Field(default=None, ge=0)
+    com_proxy_relative_change: float | None = Field(default=None, ge=0)
+    yaw_delta_deg: float | None = None
+    pose_quality: float | None = Field(default=None, ge=0, le=1)
     input_state: FallLiveInputState = FallLiveInputState.WAITING
     input_message: str = "等待摄像头输入"
     target_present: bool = False

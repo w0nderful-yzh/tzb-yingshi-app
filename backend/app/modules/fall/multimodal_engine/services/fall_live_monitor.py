@@ -13,7 +13,11 @@ from queue import Empty, Full, Queue
 
 from sqlalchemy.orm import Session
 
-from app.modules.fall.multimodal_engine.algorithm_runtime import AdapterContext, AlgorithmFinding, RiskEventFactory
+from app.modules.fall.multimodal_engine.algorithm_runtime import (
+    AdapterContext,
+    AlgorithmFinding,
+    RiskEventFactory,
+)
 from app.modules.fall.multimodal_engine.core.config import Settings
 from app.modules.fall.multimodal_engine.integrations.ezviz import EzvizApiError, EzvizClient
 from app.modules.fall.multimodal_engine.schemas.fall_live import (
@@ -23,8 +27,15 @@ from app.modules.fall.multimodal_engine.schemas.fall_live import (
     FallLiveStatusResponse,
     RppgLiveStatus,
 )
-from app.modules.fall.multimodal_engine.schemas.monitoring import MonitoringMode, MonitoringSessionCreate
-from app.modules.fall.multimodal_engine.schemas.risk_event import EvidenceItem, RiskLevel, RiskModule
+from app.modules.fall.multimodal_engine.schemas.monitoring import (
+    MonitoringMode,
+    MonitoringSessionCreate,
+)
+from app.modules.fall.multimodal_engine.schemas.risk_event import (
+    EvidenceItem,
+    RiskLevel,
+    RiskModule,
+)
 from app.modules.fall.multimodal_engine.services.monitoring import MonitoringService
 from app.modules.fall.multimodal_engine.services.risk_event import RiskEventService
 from app.modules.fall.multimodal_engine.database.session import SessionLocal
@@ -84,6 +95,10 @@ class FallLiveMonitorService:
             risk_score=None,
             risk_level=None,
             positive_votes=None,
+            torso_inclination_deg=None,
+            com_proxy_relative_change=None,
+            yaw_delta_deg=None,
+            pose_quality=None,
             last_prediction_at=None,
             error=None,
         )
@@ -121,6 +136,10 @@ class FallLiveMonitorService:
             risk_score=None,
             risk_level=None,
             positive_votes=None,
+            torso_inclination_deg=None,
+            com_proxy_relative_change=None,
+            yaw_delta_deg=None,
+            pose_quality=None,
             last_prediction_at=None,
             error=None,
         )
@@ -320,14 +339,10 @@ class FallLiveMonitorService:
         if self._stop_event.is_set():
             return
         status = self.get_status()
-        detail = status.error or (
-            self._stderr_tail[-1] if self._stderr_tail else "no diagnostics"
-        )
+        detail = status.error or (self._stderr_tail[-1] if self._stderr_tail else "no diagnostics")
         raise RuntimeError(f"fall inference worker exited with code {return_code}: {detail}")
 
-    def _run_opensdk_worker(
-        self, device_id: str, worker_config: dict[str, str]
-    ) -> None:
+    def _run_opensdk_worker(self, device_id: str, worker_config: dict[str, str]) -> None:
         python_path = Path(self.settings.fall_inference_python)
         project_dir = Path(self.settings.fall_inference_project_dir)
         sdk_root = Path(self.settings.fall_live_ezviz_opensdk_root)
@@ -417,9 +432,7 @@ class FallLiveMonitorService:
         if self._stop_event.is_set():
             return
         status = self.get_status()
-        detail = status.error or (
-            self._stderr_tail[-1] if self._stderr_tail else "no diagnostics"
-        )
+        detail = status.error or (self._stderr_tail[-1] if self._stderr_tail else "no diagnostics")
         raise RuntimeError(f"fall inference worker exited with code {return_code}: {detail}")
 
     def _run_browser_worker(self) -> None:
@@ -495,9 +508,7 @@ class FallLiveMonitorService:
         if self._stop_event.is_set():
             return
         status = self.get_status()
-        detail = status.error or (
-            self._stderr_tail[-1] if self._stderr_tail else "no diagnostics"
-        )
+        detail = status.error or (self._stderr_tail[-1] if self._stderr_tail else "no diagnostics")
         raise RuntimeError(f"fall inference worker exited with code {return_code}: {detail}")
 
     def _write_browser_frames(self, process: subprocess.Popen[str]) -> None:
@@ -551,10 +562,7 @@ class FallLiveMonitorService:
         if kind == "stream":
             raw_state = str(message.get("state", "CONNECTED"))
             if raw_state in {"CONNECTING", "RECONNECTING"}:
-                detail = (
-                    self._optional_str(message.get("message"))
-                    or "OpenSDK视频流已停止返回画面"
-                )
+                detail = self._optional_str(message.get("message")) or "OpenSDK视频流已停止返回画面"
                 self._set_status(
                     state=FallLiveState.CONNECTING,
                     input_state=FallLiveInputState.WAITING,
@@ -568,6 +576,10 @@ class FallLiveMonitorService:
                     risk_score=None,
                     risk_level=None,
                     positive_votes=None,
+                    torso_inclination_deg=None,
+                    com_proxy_relative_change=None,
+                    yaw_delta_deg=None,
+                    pose_quality=None,
                     last_prediction_at=None,
                     frames_ready=0,
                     source_window_frames=0,
@@ -632,17 +644,24 @@ class FallLiveMonitorService:
                 state=FallLiveState.RUNNING,
                 input_state=input_state,
                 input_message=(
-                    self._optional_str(message.get("input_message"))
-                    or "实时输入暂不满足推理要求"
+                    self._optional_str(message.get("input_message")) or "实时输入暂不满足推理要求"
                 ),
                 target_present=bool(message.get("target_present", False)),
                 training_input_ready=bool(message.get("training_input_ready", False)),
                 risk_score=None,
                 risk_level=None,
                 positive_votes=None,
+                torso_inclination_deg=None,
+                com_proxy_relative_change=None,
+                yaw_delta_deg=None,
+                pose_quality=None,
                 last_prediction_at=None,
                 frames_ready=min(
-                    max(2, self._int(message.get("required_source_frames")) or self.settings.fall_live_required_source_frames),
+                    max(
+                        2,
+                        self._int(message.get("required_source_frames"))
+                        or self.settings.fall_live_required_source_frames,
+                    ),
                     self._int(message.get("source_window_frames")),
                 ),
                 source_window_frames=self._int(message.get("source_window_frames")),
@@ -706,14 +725,19 @@ class FallLiveMonitorService:
             state=FallLiveState.RUNNING,
             input_state=FallLiveInputState.READY,
             input_message=(
-                self._optional_str(message.get("input_message"))
-                or "输入满足实时部署模型要求"
+                self._optional_str(message.get("input_message")) or "输入满足实时部署模型要求"
             ),
             target_present=True,
             training_input_ready=True,
             risk_score=score,
             risk_level=level,
             positive_votes=self._int(message.get("positive_votes")),
+            torso_inclination_deg=self._optional_float(message.get("torso_inclination_deg")),
+            com_proxy_relative_change=self._optional_float(
+                message.get("com_proxy_relative_change")
+            ),
+            yaw_delta_deg=self._optional_signed_float(message.get("yaw_delta_deg")),
+            pose_quality=self._optional_float(message.get("pose_quality")),
             frames_ready=max(
                 2,
                 self._int(message.get("required_source_frames"))
@@ -732,12 +756,8 @@ class FallLiveMonitorService:
                 self._int(message.get("required_source_frames"))
                 or self.settings.fall_live_required_source_frames,
             ),
-            effective_sample_fps=(
-                self._optional_float(message.get("effective_sample_fps")) or 0.0
-            ),
-            mean_keypoint_confidence=self._optional_float(
-                message.get("mean_keypoint_confidence")
-            ),
+            effective_sample_fps=(self._optional_float(message.get("effective_sample_fps")) or 0.0),
+            mean_keypoint_confidence=self._optional_float(message.get("mean_keypoint_confidence")),
             latest_keypoint_confidence=self._optional_float(
                 message.get("latest_keypoint_confidence")
             ),
@@ -753,18 +773,13 @@ class FallLiveMonitorService:
                 else self._int(message.get("queue_depth"))
             ),
             processing_fps=self._optional_float(message.get("processing_fps")),
-            pipeline_latency_seconds=self._optional_float(
-                message.get("pipeline_latency_seconds")
-            ),
+            pipeline_latency_seconds=self._optional_float(message.get("pipeline_latency_seconds")),
             last_prediction_at=occurred_at,
             alignment_snapshot=alignment_snapshot,
             **({"rppg": rppg_status} if rppg_status is not None else {}),
             error=None,
         )
-        if (
-            bool(message.get("alert", False))
-            and self.settings.fall_live_risk_events_enabled
-        ):
+        if bool(message.get("alert", False)) and self.settings.fall_live_risk_events_enabled:
             self._persist_alert(device_id, occurred_at, message)
 
     def _write_alignment_shadow_log(
@@ -819,8 +834,16 @@ class FallLiveMonitorService:
         footpoint_source: str | None = None
         keypoints = message.get("keypoints_2d")
         if isinstance(keypoints, list) and len(keypoints) > 16:
-            left = finite_values(keypoints[15], len(keypoints[15])) if isinstance(keypoints[15], (list, tuple)) else None
-            right = finite_values(keypoints[16], len(keypoints[16])) if isinstance(keypoints[16], (list, tuple)) else None
+            left = (
+                finite_values(keypoints[15], len(keypoints[15]))
+                if isinstance(keypoints[15], (list, tuple))
+                else None
+            )
+            right = (
+                finite_values(keypoints[16], len(keypoints[16]))
+                if isinstance(keypoints[16], (list, tuple))
+                else None
+            )
             if left is not None and right is not None and len(left) >= 2 and len(right) >= 2:
                 footpoint = ((left[0] + right[0]) / 2.0, (left[1] + right[1]) / 2.0)
                 footpoint_source = "ANKLE_MIDPOINT_15_16"
@@ -949,6 +972,15 @@ class FallLiveMonitorService:
             return None
         try:
             return max(0.0, float(value))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _optional_signed_float(value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
         except (TypeError, ValueError):
             return None
 

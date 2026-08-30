@@ -278,6 +278,10 @@ class MultimodalFusionService:
             "effective_sample_fps": status.effective_sample_fps,
             "mean_keypoint_confidence": status.mean_keypoint_confidence,
             "latest_keypoint_confidence": status.latest_keypoint_confidence,
+            "torso_inclination_deg": status.torso_inclination_deg,
+            "com_proxy_relative_change": status.com_proxy_relative_change,
+            "yaw_delta_deg": status.yaw_delta_deg,
+            "pose_quality": status.pose_quality,
             "last_event_id": status.last_event_id,
         }
         window_end = timestamp

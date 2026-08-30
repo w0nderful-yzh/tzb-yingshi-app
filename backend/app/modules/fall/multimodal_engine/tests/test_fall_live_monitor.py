@@ -11,7 +11,11 @@ from fastapi.testclient import TestClient
 from app.modules.fall.multimodal_engine.api.fall_live import router as fall_live_router
 from app.modules.fall.multimodal_engine.core.config import Settings
 from app.modules.fall.multimodal_engine.integrations.ezviz import EzvizApiError
-from app.modules.fall.multimodal_engine.schemas.fall_live import FallLiveInputState, FallLiveState, FallLiveStatusResponse
+from app.modules.fall.multimodal_engine.schemas.fall_live import (
+    FallLiveInputState,
+    FallLiveState,
+    FallLiveStatusResponse,
+)
 from app.modules.fall.multimodal_engine.schemas.risk_event import RiskLevel
 from app.modules.fall.multimodal_engine.services.fall_live_monitor import FallLiveMonitorService
 
@@ -51,26 +55,20 @@ class FallLiveControlApiTest(unittest.TestCase):
 
 class FallLiveMonitorStatusTest(unittest.TestCase):
     def test_encrypted_standard_stream_has_actionable_status_message(self) -> None:
-        message = FallLiveMonitorService._display_error(
-            EzvizApiError("加密已开启", code="60019")
-        )
+        message = FallLiveMonitorService._display_error(EzvizApiError("加密已开启", code="60019"))
         self.assertIn("视频图片加密", message)
         self.assertIn("EZOPEN", message)
         self.assertIn("自动重连", message)
 
     def test_disabled_monitor_does_not_start_background_worker(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         service.start()
         status = service.get_status()
         self.assertEqual(status.state, FallLiveState.DISABLED)
         self.assertFalse(service.is_running)
 
     def test_prediction_updates_live_status_without_persisting_low_event(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         occurred_at = datetime.now(timezone.utc).isoformat()
         service._handle_message(
             "camera-01",
@@ -97,9 +95,7 @@ class FallLiveMonitorStatusTest(unittest.TestCase):
         self.assertIsNone(status.last_event_id)
 
     def test_prediction_keeps_rppg_as_non_decision_sidecar(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         service._handle_message(
             "camera-01",
             {
@@ -147,11 +143,20 @@ class FallLiveMonitorStatusTest(unittest.TestCase):
                     "risk_level": "HIGH",
                     "alert": True,
                     "positive_votes": 5,
+                    "torso_inclination_deg": 47.5,
+                    "com_proxy_relative_change": 0.18,
+                    "yaw_delta_deg": -12.0,
+                    "pose_quality": 0.82,
                 },
             )
 
         persist.assert_not_called()
-        self.assertEqual(service.get_status().risk_level, RiskLevel.HIGH)
+        status = service.get_status()
+        self.assertEqual(status.risk_level, RiskLevel.HIGH)
+        self.assertEqual(status.torso_inclination_deg, 47.5)
+        self.assertEqual(status.com_proxy_relative_change, 0.18)
+        self.assertEqual(status.yaw_delta_deg, -12.0)
+        self.assertEqual(status.pose_quality, 0.82)
 
     def test_optional_alignment_log_persists_geometry_without_changing_status(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -179,9 +184,7 @@ class FallLiveMonitorStatusTest(unittest.TestCase):
             self.assertEqual(service.get_status().input_state, FallLiveInputState.WAITING)
 
     def test_alignment_snapshot_uses_ankle_midpoint_without_changing_camera_score(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         keypoints = [[0.0, 0.0, 0.0] for _ in range(17)]
         keypoints[15] = [500.0, 690.0, 0.9]
         keypoints[16] = [540.0, 710.0, 0.8]
@@ -230,9 +233,7 @@ class FallLiveMonitorStatusTest(unittest.TestCase):
         self.assertEqual(service._browser_received, 1)
 
     def test_no_person_status_clears_stale_risk_and_splits_frame_counts(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         service._handle_message(
             "camera-01",
             {
@@ -293,9 +294,7 @@ class FallLiveMonitorStatusTest(unittest.TestCase):
             )
 
     def test_stream_reconnect_clears_stale_prediction(self) -> None:
-        service = FallLiveMonitorService(
-            Settings(_env_file=None, fall_live_monitor_enabled=False)
-        )
+        service = FallLiveMonitorService(Settings(_env_file=None, fall_live_monitor_enabled=False))
         service._handle_message(
             "camera-01",
             {
