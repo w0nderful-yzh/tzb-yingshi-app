@@ -77,6 +77,11 @@ fun CareScreen(
             ) {
                 PsychologyAssessmentCard(psychologyState, viewModel::loadPsychologyOverview)
                 CognitiveAssessmentCard(cognitiveState, viewModel::loadCognitiveOverview)
+                Text(
+                    "以上为AI辅助评估，仅供日常关怀参考，不构成医疗诊断。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -174,13 +179,6 @@ private fun CognitiveAssessmentContent(overview: CognitiveOverview) {
             }
         }
     }
-
-    Spacer(Modifier.height(10.dp))
-    Text(
-        "AI估计存在误差，仅供日常关怀参考，不构成认知障碍或医疗诊断。",
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondary,
-    )
 }
 
 @Composable
@@ -270,7 +268,6 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
     }
     Text(stateLabel, style = MaterialTheme.typography.titleMedium)
     if (overview.assessment_state == "observation_available") {
-        Text("已完成近期心理行为特征综合分析", style = MaterialTheme.typography.bodyMedium)
         overview.estimated_phq8_score?.let { score ->
             Spacer(Modifier.height(12.dp))
             Text("参考评估分数", style = MaterialTheme.typography.titleSmall)
@@ -278,11 +275,6 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
                 "${"%.1f".format(score)} / 24",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-            )
-            Text(
-                "最近一次心理评估模型输出",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
             )
             DataRow("辅助风险程度", psychologyRiskLevelLabel(overview.risk_level))
         }
@@ -296,12 +288,6 @@ private fun PsychologyAssessmentContent(overview: PsychologyOverview) {
         overview.updated_at?.takeIf { it.isNotBlank() }?.let {
             DataRow("最近评估时间", formatAssessmentTime(it))
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            overview.disclaimer.ifBlank { "该结果仅供日常关怀参考，不构成心理或医疗诊断" },
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
     } else {
         Text(overview.evidence_summary, style = MaterialTheme.typography.bodyMedium)
         if (overview.assessment_state == "collecting") {
@@ -335,11 +321,6 @@ private fun PreviousCompletedContent(completed: PsychologyCompletedReference) {
     completed.updated_at?.takeIf { it.isNotBlank() }?.let {
         DataRow("上一轮完成时间", formatAssessmentTime(it))
     }
-    Text(
-        completed.disclaimer.ifBlank { "算法评分仅用于辅助评估，不构成心理或医疗诊断" },
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondary,
-    )
 }
 
 @Composable
