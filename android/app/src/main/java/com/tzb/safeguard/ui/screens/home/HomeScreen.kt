@@ -167,7 +167,7 @@ fun HomeScreen(
                         pending = data.pendingWarnings,
                         recent = data.recentWarnings,
                     ) {
-                        navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                        navController.navigate(Routes.FRAUD) { launchSingleTop = true }
                     }
                 }
                 item {
@@ -393,7 +393,7 @@ private fun FraudRiskSummaryCard(
                 }
                 if (recent.size > 1) {
                     Spacer(Modifier.height(4.dp))
-                    Text("已有 ${recent.size} 条记录，点击查看全部", color = TextSecondary, fontSize = 12.sp)
+                    Text("已有 ${recent.size} 条记录", color = TextSecondary, fontSize = 12.sp)
                 }
             }
         }
