@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -277,14 +279,16 @@ val AppTabs = listOf(
 
 @Composable
 fun AppBottomBar(tabs: List<TabItem>, currentRoute: String?, onNavigate: (String) -> Unit) {
+    val unread by com.tzb.safeguard.ui.screens.alerts.AlertsUnread.count.collectAsState()
     NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
         tabs.forEach { tab ->
+            val badge = if (tab.route == "alerts") unread else tab.badge
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = { onNavigate(tab.route) },
                 icon = {
                     BadgedBox(badge = {
-                        if (tab.badge > 0) Badge(containerColor = WarnRed) { Text("${tab.badge}") }
+                        if (badge > 0) Badge(containerColor = WarnRed) { Text("$badge") }
                     }) {
                         Icon(tab.icon, contentDescription = tab.label, modifier = Modifier.size(28.dp))
                     }

@@ -7,6 +7,7 @@ import com.tzb.safeguard.data.model.RiskEvent
 import com.tzb.safeguard.data.repository.SafeRepository
 import com.tzb.safeguard.ui.components.UiState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -23,6 +24,15 @@ data class AlertsData(
     val events: List<RiskEvent>,
     val unreadCount: Int
 )
+
+/** 消息 Tab 未读角标的单一来源；由已加载事件列表的页面写入（与 unreadCount 同口径：open 且未删除）。 */
+object AlertsUnread {
+    private val _count = MutableStateFlow(0)
+    val count: StateFlow<Int> = _count.asStateFlow()
+    fun set(value: Int) {
+        _count.value = value
+    }
+}
 
 class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
 
@@ -48,6 +58,7 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
             repo.getEvents(elderId = elderId)
                 .onSuccess { data ->
                     _allEvents = data.events.filter { it.type == "fraud_suspected" || it.type == "fall_suspected" }
+                    AlertsUnread.set(unreadCount())
                     _state.value = UiState.Success(AlertsData(filter, applyFilter(filter), unreadCount()))
                 }
                 .onFailure { _state.value = UiState.Error(it.message ?: "加载失败") }
@@ -60,6 +71,7 @@ class AlertsViewModel(private val repo: SafeRepository) : ViewModel() {
             repo.deleteEvent(eventId)
                 .onSuccess {
                     _allEvents = _allEvents.filterNot { it.event_id == eventId }
+                    AlertsUnread.set(unreadCount())
                     _state.value = UiState.Success(AlertsData(filter, applyFilter(filter), unreadCount()))
                 }
                 .onFailure {

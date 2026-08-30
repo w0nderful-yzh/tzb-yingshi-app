@@ -14,6 +14,7 @@ import com.tzb.safeguard.data.psychology.model.PsychologyOverview
 import com.tzb.safeguard.data.psychology.repository.PsychologyRepository
 import com.tzb.safeguard.data.repository.SafeRepository
 import com.tzb.safeguard.ui.components.UiState
+import com.tzb.safeguard.ui.screens.alerts.AlertsUnread
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private const val FALL_REFRESH_INTERVAL_MS = 2_500L
+private const val FALL_REFRESH_INTERVAL_MS = 1_000L
 
 data class HomeData(
     val elder: ElderInfo?,
@@ -75,6 +76,7 @@ class HomeViewModel(
             val elderId = repo.getCurrentElderId().getOrElse { return@launch }
             val events = repo.getEvents(elderId = elderId).getOrElse { return@launch }
             val latest = _state.value as? UiState.Success ?: return@launch
+            AlertsUnread.set(unreadCount(events))
             _state.value = UiState.Success(
                 latest.data.copy(
                     pendingWarnings = fraudWarnings(events).filter {
@@ -84,6 +86,12 @@ class HomeViewModel(
                 )
             )
         }
+    }
+
+    /** 与消息页 unreadCount 同口径：诈骗+跌倒、open、未删除。 */
+    private fun unreadCount(events: EventListData): Int = events.events.count {
+        (it.type == "fraud_suspected" || it.type == "fall_suspected") &&
+            it.status == "open" && it.verification_status != "retracted"
     }
 
     private suspend fun refreshFallRisk() {
