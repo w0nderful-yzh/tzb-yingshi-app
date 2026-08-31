@@ -130,9 +130,9 @@ def _completed_quality(snapshot: CognitiveAssessmentSnapshot) -> CognitiveDataQu
 def _attention_level(score: float) -> CognitiveAttentionLevel:
     if score >= 27.0:
         return CognitiveAttentionLevel.NONE
-    if score >= 24.0:
+    if score >= 21.0:
         return CognitiveAttentionLevel.MILD
-    if score >= 18.0:
+    if score >= 10.0:
         return CognitiveAttentionLevel.MODERATE
     return CognitiveAttentionLevel.HIGH
 

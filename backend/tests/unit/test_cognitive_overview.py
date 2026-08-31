@@ -47,7 +47,7 @@ def test_completed_snapshot_maps_score_and_non_diagnostic_attention_level() -> N
 
     assert result.assessment_state is CognitiveState.COMPLETED
     assert result.estimated_mmse_score == 23.4
-    assert result.attention_level is CognitiveAttentionLevel.MODERATE
+    assert result.attention_level is CognitiveAttentionLevel.MILD
     assert result.data_quality is CognitiveDataQuality.USABLE
     assert result.source_modality == "voice_acoustic"
     assert "risk_level" not in payload
@@ -57,10 +57,10 @@ def test_completed_snapshot_maps_score_and_non_diagnostic_attention_level() -> N
 @pytest.mark.parametrize(
     ("score", "expected"),
     [
-        (17.99, CognitiveAttentionLevel.HIGH),
-        (18.0, CognitiveAttentionLevel.MODERATE),
-        (23.99, CognitiveAttentionLevel.MODERATE),
-        (24.0, CognitiveAttentionLevel.MILD),
+        (9.99, CognitiveAttentionLevel.HIGH),
+        (10.0, CognitiveAttentionLevel.MODERATE),
+        (20.99, CognitiveAttentionLevel.MODERATE),
+        (21.0, CognitiveAttentionLevel.MILD),
         (26.99, CognitiveAttentionLevel.MILD),
         (27.0, CognitiveAttentionLevel.NONE),
         (30.0, CognitiveAttentionLevel.NONE),
@@ -97,7 +97,7 @@ async def test_processing_overview_keeps_latest_completed(tmp_path) -> None:
     assert result.attention_level is None
     assert result.latest_completed is not None
     assert result.latest_completed.estimated_mmse_score == 22.8
-    assert result.latest_completed.attention_level is CognitiveAttentionLevel.MODERATE
+    assert result.latest_completed.attention_level is CognitiveAttentionLevel.MILD
 
 
 @pytest.mark.parametrize(
