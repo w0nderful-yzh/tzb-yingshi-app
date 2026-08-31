@@ -96,24 +96,26 @@ fun FraudScreen(
             ) {
                 MonitoringCard(guardStatus.fraudMonitoringStatus)
                 StateBox(state, viewModel::load) { events ->
-                    CurrentRiskCard(events)
-                    if (events.isEmpty()) {
-                        EmptyBox("暂无诈骗预警记录")
-                    } else {
-                        AppCard {
-                            Text("最近预警记录", style = MaterialTheme.typography.titleLarge)
-                            Spacer(Modifier.size(6.dp))
-                            events.take(3).forEach { event ->
-                                FraudEventRow(event) {
-                                    navController.navigate(Routes.alertDetail(event.event_id))
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        CurrentRiskCard(events)
+                        if (events.isEmpty()) {
+                            EmptyBox("暂无诈骗预警记录")
+                        } else {
+                            AppCard {
+                                Text("最近预警记录", style = MaterialTheme.typography.titleLarge)
+                                Spacer(Modifier.size(6.dp))
+                                events.take(3).forEach { event ->
+                                    FraudEventRow(event) {
+                                        navController.navigate(Routes.alertDetail(event.event_id))
+                                    }
                                 }
                             }
                         }
+                        TextButton(
+                            onClick = { navController.navigate(Routes.ALERTS) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("查看全部消息", color = Primary) }
                     }
-                    TextButton(
-                        onClick = { navController.navigate(Routes.ALERTS) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("查看全部消息", color = Primary) }
                 }
             }
         }
